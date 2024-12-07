@@ -4,16 +4,11 @@
 package gkirby
 
 import (
-	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
 	"strings"
-	"syscall"
 	"time"
 	"unsafe"
-
-	"github.com/mitchellh/go-ps"
-	"golang.org/x/sys/windows/registry"
 )
 
 const (
