@@ -139,6 +139,12 @@ type Ticket struct {
 	EncPart EncryptedData `asn1:"explicit,tag:3"`
 }
 
+type EncryptedData struct {
+	EType  int32  `asn1:"explicit,tag:0"`
+	KVNO   int32  `asn1:"optional,explicit,tag:1"`
+	Cipher []byte `asn1:"explicit,tag:2"`
+}
+
 type EncKrbCredPart struct {
 	TicketInfo []KrbCredInfo `asn1:"explicit,tag:0"`
 }
@@ -339,7 +345,7 @@ func newKRBCred() *KrbCred {
 		MsgType: 22,
 		Tickets: []Ticket{},
 		EncPart: EncKrbCredPart{
-			ticketInfo: []KrbCredInfo{},
+			TicketInfo: []KrbCredInfo{}, // Capital T in TicketInfo
 		},
 	}
 }
