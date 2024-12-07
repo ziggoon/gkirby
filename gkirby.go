@@ -543,13 +543,13 @@ func enumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]SessionCr
 		return sessionCreds, fmt.Errorf("[-] failed to check if admin is enabled, err: %v\n", err)
 	}
 	if isAdmin {
-		fmt.Printf("[!] elevated token. listing sessionCreds for all users\n\n")
+		//fmt.Printf("[!] elevated token. listing sessionCreds for all users\n\n")
 		luids, err = enumerateLogonSessions()
 		if err != nil {
 			return sessionCreds, fmt.Errorf("[-] failed to enumerate logon ids, err: %v\n", err)
 		}
 	} else {
-		fmt.Printf("[-] low priv token. listing sessionCreds for current user\n\n")
+		//fmt.Printf("[-] low priv token. listing sessionCreds for current user\n\n")
 		luid, err := getCurrentLUID()
 		if err != nil {
 			return sessionCreds, fmt.Errorf("[-] failed to get current luid, err: %v\n", err)
@@ -558,8 +558,8 @@ func enumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]SessionCr
 	}
 
 	for _, luid := range luids {
-		value := uint64(luid.HighPart)<<32 | uint64(luid.LowPart)
-		fmt.Printf("[+] current luid: 0x%x\n", value)
+		//value := uint64(luid.HighPart)<<32 | uint64(luid.LowPart)
+		//fmt.Printf("[+] current luid: 0x%x\n", value)
 
 		sessionData, err := getLogonSessionData(luid)
 		if err != nil {
