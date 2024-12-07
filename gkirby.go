@@ -4,6 +4,7 @@
 package gkirby
 
 import (
+	"encoding/asn1"
 	"fmt"
 	"golang.org/x/sys/windows"
 	"strings"
@@ -107,13 +108,6 @@ const (
 	KerbRetrieveEncodedTicketMessage KerbProtocolMessageType = 8
 )
 
-type KrbCred struct {
-	Pvno    uint
-	MsgType uint
-	Tickets []Ticket
-	EncPart EncKrbCredPart
-}
-
 type SessionCred struct {
 	LogonSession LogonSessionData
 	Tickets      []KrbTicket
@@ -132,11 +126,21 @@ type KrbTicket struct {
 	KrbCred        *KrbCred
 }
 
+type KrbCred struct {
+	Pvno    int64          `asn1:"explicit,tag:0"`
+	MsgType int64          `asn1:"explicit,tag:1"`
+	Tickets []Ticket       `asn1:"explicit,tag:2"`
+	EncPart EncKrbCredPart `asn1:"explicit,tag:3"`
+}
+
 type Ticket struct {
+	Realm   string        `asn1:"explicit,tag:1"`
+	SName   PrincipalName `asn1:"explicit,tag:2"`
+	EncPart EncryptedData `asn1:"explicit,tag:3"`
 }
 
 type EncKrbCredPart struct {
-	ticketInfo []KrbCredInfo
+	TicketInfo []KrbCredInfo `asn1:"explicit,tag:0"`
 }
 
 type KrbCredInfo struct {
@@ -308,6 +312,22 @@ misc helper funcs
 func fileTimeToTime(fileTime int64) time.Time {
 	nsec := (fileTime - windowsToUnixEpochIntervals) * 100
 	return time.Unix(0, nsec).Local()
+}
+
+/*
+asn.1 helper funcs
+*/
+
+func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
+	var krbCred KrbCred
+	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
+	}
+	if len(rest) > 0 {
+		return nil, fmt.Errorf("extra data after KRB-CRED")
+	}
+	return &krbCred, nil
 }
 
 /*
@@ -516,18 +536,18 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 
 	if responsePtr != 0 {
 		defer LsaFreeReturnBuffer.Call(responsePtr)
-
 		response := (*KerbRetrieveTktResponse)(unsafe.Pointer(responsePtr))
 		encodedTicketSize := response.Ticket.EncodedTicketSize
-
 		if encodedTicketSize > 0 {
 			encodedTicket := make([]byte, encodedTicketSize)
 			copy(encodedTicket,
 				(*[1 << 30]byte)(unsafe.Pointer(response.Ticket.EncodedTicket))[:encodedTicketSize])
 
-			krbCred := newKRBCred()
-			// TODO: Parse encodedTicket into krbCred ASN.1 structure
-
+			// Parse the encoded ticket
+			krbCred, err := parseTicketData(encodedTicket)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse ticket data: %v", err)
+			}
 			return krbCred, nil
 		}
 	}
@@ -682,16 +702,32 @@ func GetKerberosTickets() []map[string]interface{} {
 
 	ticketCache = make([]map[string]interface{}, 0)
 	for _, cred := range sessionCreds {
-		ticket := map[string]interface{}{
-			"username":    cred.LogonSession.Username,
-			"domain":      cred.LogonSession.LogonDomain,
-			"logonId":     cred.LogonSession.LogonID.LowPart,
-			"ticketCount": len(cred.Tickets),
+		// For each ticket in the session credentials
+		for _, tkt := range cred.Tickets {
+			// Extract the ticket using server name
+			extractedTicket, err := extractTicket(lsaHandle, authPackage, cred.LogonSession.LogonID, tkt.ServerName)
+			if err != nil {
+				continue // Skip tickets that fail to extract
+			}
+
+			ticket := map[string]interface{}{
+				"username":    cred.LogonSession.Username,
+				"domain":      cred.LogonSession.LogonDomain,
+				"logonId":     cred.LogonSession.LogonID.LowPart,
+				"serverName":  tkt.ServerName,
+				"serverRealm": tkt.ServerRealm,
+				"startTime":   tkt.StartTime.Format(time.RFC3339),
+				"endTime":     tkt.EndTime.Format(time.RFC3339),
+				"renewTime":   tkt.RenewTime.Format(time.RFC3339),
+				"flags":       tkt.TicketFlags.String(),
+				"encType":     tkt.EncryptionType,
+				"krbCred":     extractedTicket,
+			}
+			ticketCache = append(ticketCache, ticket)
 		}
-		ticketCache = append(ticketCache, ticket)
 	}
 
-	if ticketCache != nil {
+	if len(ticketCache) > 0 {
 		return ticketCache
 	}
 	return nil
