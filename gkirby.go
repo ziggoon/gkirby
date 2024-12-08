@@ -668,50 +668,24 @@ func enumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]SessionCr
 }
 
 func isHighIntegrity() (bool, error) {
-	procHandle := windows.CurrentProcess()
+	// Get current process token
 	var token windows.Token
-
-	// Request more specific token access rights
-	err := windows.OpenProcessToken(procHandle, windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &token)
+	h := windows.CurrentProcess()
+	err := windows.OpenProcessToken(h, windows.TOKEN_QUERY, &token)
 	if err != nil {
-		return false, fmt.Errorf("OpenProcessToken failed: %v", err)
+		return false, err
 	}
 	defer token.Close()
 
-	// Create a duplicate of the token to avoid impersonation issues
-	var duplicateToken windows.Token
-	err = windows.DuplicateTokenEx(
-		token,
-		windows.TOKEN_ALL_ACCESS,
-		nil,
-		windows.SecurityIdentification, // Use SecurityIdentification instead of SecurityImpersonation
-		windows.TokenPrimary,
-		&duplicateToken,
-	)
-	if err != nil {
-		return false, fmt.Errorf("DuplicateTokenEx failed: %v", err)
-	}
-	defer duplicateToken.Close()
-
-	adminSID, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
-	if err != nil {
-		return false, fmt.Errorf("CreateWellKnownSid failed: %v", err)
-	}
-
-	// Use the duplicate token for membership check
-	isAdmin, err := duplicateToken.IsMember(adminSID)
-	if err != nil {
-		return false, fmt.Errorf("IsMember failed: %v", err)
-	}
-
-	var elevation Elevation
+	// TokenElevation is 20
+	var isElevated uint32
 	var returnedLen uint32
-	err = windows.GetTokenInformation(duplicateToken, windows.TokenElevation, (*byte)(unsafe.Pointer(&elevation)), uint32(unsafe.Sizeof(elevation)), &returnedLen)
+	err = windows.GetTokenInformation(token, windows.TokenElevation, (*byte)(unsafe.Pointer(&isElevated)), uint32(unsafe.Sizeof(isElevated)), &returnedLen)
 	if err != nil {
 		return false, err
 	}
 
-	return isAdmin && elevation.TokenIsElevated != 0, nil
+	return isElevated != 0, nil
 }
 
 func isSystem() (bool, error) {
