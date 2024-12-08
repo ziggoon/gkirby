@@ -21,5 +21,9 @@
 go.work
 go.work.sum
 
+# go mod
+go.mod
+go.sum
+
 # env file
 .env
