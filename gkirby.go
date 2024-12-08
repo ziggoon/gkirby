@@ -695,20 +695,17 @@ func isSystem() (bool, error) {
 	}
 	defer token.Close()
 
+	user, err := token.GetTokenUser()
+	if err != nil {
+		return false, fmt.Errorf("GetTokenUser failed: %v", err)
+	}
+
 	systemSid, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
 	if err != nil {
 		return false, fmt.Errorf("CreateWellKnownSid failed: %v", err)
 	}
 
-	fmt.Printf("[+] token: %+v\n", token)
-	fmt.Printf("[+] system sid: %+v\n", systemSid)
-
-	isSystem, err := token.IsMember(systemSid)
-	if err != nil {
-		return false, fmt.Errorf("IsMember failed: %v", err)
-	}
-
-	return isSystem, nil
+	return windows.EqualSid(user.User.Sid, systemSid), nil
 }
 
 func getSystem() bool {
