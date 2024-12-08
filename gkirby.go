@@ -700,7 +700,8 @@ func isSystem() (bool, error) {
 		return false, fmt.Errorf("CreateWellKnownSid failed: %v", err)
 	}
 
-	fmt.Printf("[+] token: %+v", token)
+	fmt.Printf("[+] token: %+v\n", token)
+	fmt.Printf("[+] system sid: %+v\n", systemSid)
 
 	isSystem, err := token.IsMember(systemSid)
 	if err != nil {
