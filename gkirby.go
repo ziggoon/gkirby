@@ -668,7 +668,6 @@ func enumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]SessionCr
 }
 
 func isHighIntegrity() (bool, error) {
-	// Get current process token
 	var token windows.Token
 	h := windows.CurrentProcess()
 	err := windows.OpenProcessToken(h, windows.TOKEN_QUERY, &token)
@@ -677,7 +676,6 @@ func isHighIntegrity() (bool, error) {
 	}
 	defer token.Close()
 
-	// TokenElevation is 20
 	var isElevated uint32
 	var returnedLen uint32
 	err = windows.GetTokenInformation(token, windows.TokenElevation, (*byte)(unsafe.Pointer(&isElevated)), uint32(unsafe.Sizeof(isElevated)), &returnedLen)
@@ -701,6 +699,8 @@ func isSystem() (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("CreateWellKnownSid failed: %v", err)
 	}
+
+	fmt.Printf("[+] token: %+v", token)
 
 	isSystem, err := token.IsMember(systemSid)
 	if err != nil {
@@ -796,6 +796,8 @@ func getLsaHandle() (windows.Handle, error) {
 		fmt.Printf("[-] Failed to check integrity level: %v\n", err)
 		return 0, err
 	}
+
+	fmt.Printf("[*] Is high integrity: %v\n", isHighIntegrity)
 
 	isSystem, err := isSystem()
 	if err != nil {
