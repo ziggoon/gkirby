@@ -74,14 +74,14 @@ type KrbTicket struct {
 }
 
 type KrbCredWrapper struct {
-	Credential KrbCred `asn1:"application,tag:22"` // This matches Rubeus' outer SEQUENCE wrapper
+	Credential KrbCred `asn1:"explicit,application,tag:22"` // This matches Rubeus' outer SEQUENCE wrapper
 }
 
 type KrbCred struct {
 	Pvno    int32          `asn1:"tag:0,explicit"`
 	MsgType int32          `asn1:"tag:1,explicit"`
 	Tickets []Ticket       `asn1:"tag:2,explicit"`
-	EncPart EncKrbCredPart `asn1:"tag:3,explicit"`
+	EncPart EncKrbCredPart `asn1:"tag:3,explicit,optional"`
 }
 
 type EncKrbCredPart struct {
@@ -335,28 +335,15 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[*] First 32 bytes: % X\n", encodedTicket[:32])
 
 	var wrapper KrbCredWrapper
-	rest, err := asn1.UnmarshalWithParams(encodedTicket, &wrapper, "application,tag:22")
+	rest, err := asn1.UnmarshalWithParams(encodedTicket, &wrapper, "")
 	if err != nil {
 		fmt.Printf("[-] Failed to decode outer wrapper: %v\n", err)
 		fmt.Printf("[-] Remaining bytes: %d\n", len(rest))
-		dumpASN1Structure(encodedTicket) // This is good that you have this
+		dumpASN1Structure(encodedTicket)
 		return nil, fmt.Errorf("failed to unmarshal KRB-CRED wrapper: %v", err)
 	}
 
-	// Add validation of parsed data
-	cred := wrapper.Credential
-	fmt.Printf("[+] Successfully parsed KRB-CRED\n")
-	fmt.Printf("    Version: %d\n", cred.Pvno)
-	fmt.Printf("    MsgType: %d\n", cred.MsgType)
-	fmt.Printf("    Number of tickets: %d\n", len(cred.Tickets))
-
-	// Add validation for the first ticket if available
-	if len(cred.Tickets) > 0 {
-		fmt.Printf("    First ticket realm: %s\n", cred.Tickets[0].Realm)
-		fmt.Printf("    First ticket EType: %d\n", cred.Tickets[0].EncPart.EType)
-	}
-
-	return &cred, nil
+	return &wrapper.Credential, nil
 }
 
 // Add ASN.1 structure dumping helper
