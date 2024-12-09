@@ -378,29 +378,33 @@ func (t TicketFlags) String() string {
 asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
-	fmt.Printf("[+] Starting detailed ASN.1 analysis:\n")
-	DetailedDumpASN1(encodedTicket, "  ")
+	fmt.Printf("[DEBUG] Parsing ticket data of length: %d\n", len(encodedTicket))
+	fmt.Printf("[DEBUG] First few bytes: % X\n", encodedTicket[:20])
 
-	fmt.Printf("[+] Attempting manual parse:\n")
-	err := debugParseASN1(encodedTicket)
+	// First try parsing just the outer APPLICATION tag
+	var outer asn1.RawValue
+	_, err := asn1.Unmarshal(encodedTicket, &outer)
 	if err != nil {
-		fmt.Printf("[-] Manual parse error: %v\n", err)
+		return nil, fmt.Errorf("failed to parse outer tag: %v", err)
 	}
+	fmt.Printf("[DEBUG] Outer tag parsed - Class: %d, Tag: %d, IsCompound: %v, Len: %d\n",
+		outer.Class, outer.Tag, outer.IsCompound, len(outer.Bytes))
+	fmt.Printf("[DEBUG] Outer content first bytes: % X\n", outer.Bytes[:20])
 
-	fmt.Printf("[+] Raw parse attempt:\n")
-	err = parseKrbCredRaw(encodedTicket)
+	// Try parsing the SEQUENCE
+	var seq asn1.RawValue
+	_, err = asn1.Unmarshal(outer.Bytes, &seq)
 	if err != nil {
-		fmt.Printf("[-] Raw parse error: %v\n", err)
+		return nil, fmt.Errorf("failed to parse sequence: %v", err)
 	}
+	fmt.Printf("[DEBUG] Sequence parsed - Class: %d, Tag: %d, IsCompound: %v, Len: %d\n",
+		seq.Class, seq.Tag, seq.IsCompound, len(seq.Bytes))
 
-	fmt.Printf("[+] raw bytes: % X\n", encodedTicket)
+	// Now try our actual struct
 	var krbCred KrbCred
-	rest, err := asn1.Unmarshal(encodedTicket, &krbCred) // No need for UnmarshalWithParams
+	_, err = asn1.Unmarshal(encodedTicket, &krbCred)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
-	}
-	if len(rest) != 0 {
-		fmt.Printf("[!] extra bytes: % X\n", rest)
 	}
 
 	return &krbCred, nil
