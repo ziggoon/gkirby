@@ -490,8 +490,6 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 
 	isAdmin, _ := isAdmin()
 
-	targetName = strings.ReplaceAll(targetName, "/", "\\")
-
 	targetNameUTF16 := windows.StringToUTF16(targetName)
 	nameLen := uint16(len(targetNameUTF16) * 2)
 
@@ -517,8 +515,9 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 
 	targetNamePtr := uintptr(bufferPtr) + requestSize
 
-	copy(unsafe.Slice((*byte)(unsafe.Pointer(targetNamePtr)), nameLen),
-		unsafe.Slice((*byte)(unsafe.Pointer(&targetNameUTF16[0])), len(targetNameUTF16)*2))
+	stringData := unsafe.Slice((*byte)(unsafe.Pointer(&targetNameUTF16[0])), nameLen)
+	targetSlice := unsafe.Slice((*byte)(unsafe.Pointer(targetNamePtr)), nameLen)
+	copy(targetSlice, stringData)
 
 	request.TargetName = LsaString{
 		Length:        nameLen - 2, // Subtract null terminator
