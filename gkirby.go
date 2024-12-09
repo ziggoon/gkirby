@@ -74,46 +74,54 @@ type KrbTicket struct {
 }
 
 type KrbCred struct {
-	Pvno    int           `asn1:"explicit,tag:0"`
-	MsgType int           `asn1:"explicit,tag:1"`
-	Tickets Tickets       `asn1:"explicit,tag:2"`
-	EncPart EncryptedData `asn1:"explicit,tag:3"`
+	Pvno    int            `asn1:"tag:0,explicit"`
+	MsgType int            `asn1:"tag:1,explicit"`
+	Tickets Tickets        `asn1:"tag:2,explicit,set"`
+	EncPart EncKrbCredPart `asn1:"tag:3,explicit"`
+}
+
+type EncKrbCredPart struct {
+	TicketInfo []KrbCredInfo `asn1:"tag:0,explicit"`
+}
+
+type PrincipalName struct {
+	NameType   int32    `asn1:"tag:0,explicit"`
+	NameString []string `asn1:"tag:1,explicit"`
+}
+
+type Ticket struct {
+	TktVno  int           `asn1:"tag:0,explicit"`
+	Realm   string        `asn1:"tag:1,explicit"`
+	SName   PrincipalName `asn1:"tag:2,explicit"`
+	EncPart EncryptedData `asn1:"tag:3,explicit"`
 }
 
 type Tickets struct {
 	Tickets []Ticket `asn1:"sequence"`
 }
 
-type PrincipalName struct {
-	NameType   int32    `asn1:"explicit,tag:0"`
-	NameString []string `asn1:"explicit,tag:1"`
+type KrbCredInfo struct {
+	Key       EncryptionKey  `asn1:"tag:0,explicit"`
+	PRealm    string         `asn1:"tag:1,explicit,optional"`
+	PName     PrincipalName  `asn1:"tag:2,explicit,optional"`
+	Flags     asn1.BitString `asn1:"tag:3,explicit,optional"`
+	AuthTime  time.Time      `asn1:"tag:4,explicit,optional,generalized"`
+	StartTime time.Time      `asn1:"tag:5,explicit,optional,generalized"`
+	EndTime   time.Time      `asn1:"tag:6,explicit,optional,generalized"`
+	RenewTill time.Time      `asn1:"tag:7,explicit,optional,generalized"`
+	SRealm    string         `asn1:"tag:8,explicit,optional"`
+	SName     PrincipalName  `asn1:"tag:9,explicit,optional"`
 }
 
-type Ticket struct {
-	TktVno  int           `asn1:"explicit,tag:0"`
-	Realm   string        `asn1:"explicit,tag:1"`
-	SName   PrincipalName `asn1:"explicit,tag:2"`
-	EncPart EncryptedData `asn1:"explicit,tag:3"`
+type EncryptionKey struct {
+	KeyType  int32  `asn1:"tag:0,explicit"`
+	KeyValue []byte `asn1:"tag:1,explicit"`
 }
 
 type EncryptedData struct {
-	EType  int32  `asn1:"explicit,tag:0"`
-	KvNo   int32  `asn1:"optional,explicit,tag:1,optional"`
-	Cipher []byte `asn1:"explicit,tag:2"`
-}
-
-type KrbCredInfo struct {
-	key       *EncryptionKey
-	pRealm    string
-	pName     *PrincipalNameData
-	flags     uint32
-	authTime  string
-	startTime string
-	endTime   string
-	renewTill string
-	sRealm    string
-	sName     *PrincipalNameData
-	cAddr     *HostAddresses
+	EType  int32  `asn1:"tag:0,explicit"`
+	KVNO   int32  `asn1:"tag:1,explicit,optional"`
+	Cipher []byte `asn1:"tag:2,explicit"`
 }
 
 type Elevation struct {
@@ -151,11 +159,6 @@ type SecurityLogonSessionData struct {
 type PrincipalNameData struct {
 	nameType   PrincipalName
 	nameString []string
-}
-
-type EncryptionKey struct {
-	keyType  int32
-	keyValue []byte
 }
 
 type HostAddresses []HostAddress
@@ -330,6 +333,7 @@ asn.1 helper funcs
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[*] Parsing ticket data (%d bytes)\n", len(encodedTicket))
 	fmt.Printf("[*] First 16 bytes: % X\n", encodedTicket[:16])
+	fmt.Printf("[*] Full ticket: % X\n", encodedTicket)
 
 	var krbCred KrbCred
 	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
