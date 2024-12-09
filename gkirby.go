@@ -105,9 +105,9 @@ type Ticket struct {
 //	   cipher[2] OCTET STRING -- ciphertext
 //	}
 type EncryptedData struct {
-	EType  int32   `asn1:"explicit,tag:0"`
-	KVNO   *uint32 `asn1:"explicit,tag:1,optional"`
-	Cipher []byte  `asn1:"explicit,tag:2"`
+	EType  int32  `asn1:"explicit,tag:0"`
+	KVNO   uint32 `asn1:"explicit,tag:1,optional"`
+	Cipher []byte `asn1:"explicit,tag:2"`
 }
 
 //	PrincipalName::= SEQUENCE {
@@ -129,7 +129,7 @@ type PrincipalName struct {
 //	}
 type EncKrbCredPart struct {
 	TicketInfo []KrbCredInfo `asn1:"explicit,tag:0"`
-	Nonce      *uint32       `asn1:"explicit,tag:1,optional"`
+	Nonce      uint32        `asn1:"explicit,tag:1,optional"`
 	Timestamp  *time.Time    `asn1:"explicit,tag:2,optional"`
 	Usec       *time.Time    `asn1:"explicit,tag:3,optional"`
 	SrcAddress *string       `asn1:"explicit,tag:4,optional"`
