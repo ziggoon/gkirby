@@ -227,7 +227,7 @@ type KerbRetrieveTktRequest struct {
 	TargetName        LsaString
 	TicketFlags       uint32
 	CacheOptions      uint32
-	EncryptionType    int64
+	EncryptionType    int32
 	CredentialsHandle SecurityHandle
 }
 
@@ -493,7 +493,7 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 	targetName = strings.ReplaceAll(targetName, "/", "\\")
 
 	targetNameUTF16 := windows.StringToUTF16(targetName)
-	nameLen := uint16(len(targetName) * 2)
+	nameLen := uint16(len(targetNameUTF16) * 2)
 
 	requestSize := unsafe.Sizeof(KerbRetrieveTktRequest{})
 	totalSize := requestSize + uintptr(nameLen)
@@ -513,11 +513,12 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 	request.TicketFlags = 0
 	request.CacheOptions = 8
 	request.EncryptionType = 0
+	request.CredentialsHandle = SecurityHandle{}
 
 	targetNamePtr := uintptr(bufferPtr) + requestSize
 
 	copy(unsafe.Slice((*byte)(unsafe.Pointer(targetNamePtr)), nameLen),
-		unsafe.Slice((*byte)(unsafe.Pointer(&targetNameUTF16[0])), nameLen))
+		unsafe.Slice((*byte)(unsafe.Pointer(&targetNameUTF16[0])), len(targetNameUTF16)*2))
 
 	request.TargetName = LsaString{
 		Length:        nameLen - 2, // Subtract null terminator
