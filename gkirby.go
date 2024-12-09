@@ -333,6 +333,7 @@ asn.1 helper funcs
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[*] Parsing ticket data (%d bytes)\n", len(encodedTicket))
 	fmt.Printf("[*] First 32 bytes: % X\n", encodedTicket[:32])
+	fmt.Printf("[*] Full ticket: % X\n", encodedTicket)
 
 	var wrapper KrbCredWrapper
 	rest, err := asn1.Unmarshal(encodedTicket, &wrapper)
