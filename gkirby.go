@@ -76,7 +76,7 @@ type KrbTicket struct {
 type KrbCred struct {
 	Pvno    int32          `asn1:"tag:0,explicit"`
 	MsgType int32          `asn1:"tag:1,explicit"`
-	Tickets []Ticket       `asn1:"tag:2,explicit,set"`
+	Tickets []Ticket       `asn1:"tag:2,explicit"`
 	EncPart EncKrbCredPart `asn1:"tag:3,explicit"`
 }
 
@@ -90,7 +90,7 @@ type PrincipalName struct {
 }
 
 type Ticket struct {
-	TktVno  int           `asn1:"tag:0,explicit"`
+	TktVno  int32         `asn1:"tag:0,explicit"`
 	Realm   string        `asn1:"tag:1,explicit"`
 	SName   PrincipalName `asn1:"tag:2,explicit"`
 	EncPart EncryptedData `asn1:"tag:3,explicit"`
@@ -332,22 +332,25 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 
 	var krbCred KrbCred
 
-	// The application tag (22) should be in the UnmarshalWithParams call, not in the struct
-	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
+	// Try different parsing methods in order of likelihood
+	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
 	if err != nil {
-		// Try with explicit
-		rest, err = asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
+		fmt.Printf("[*] First attempt failed: %v\n", err)
+		rest, err = asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
 		if err != nil {
-			// Try one more fallback option
-			rest, err = asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22,explicit")
+			fmt.Printf("[*] Second attempt failed: %v\n", err)
+			// Try with constructed flag
+			rest, err = asn1.UnmarshalWithParams(encodedTicket, &krbCred, "constructed,application,tag:22")
 			if err != nil {
-				fmt.Printf("[-] Failed to parse with all attempts: %v\n", err)
+				fmt.Printf("[-] All parsing attempts failed: %v\n", err)
+				// Add debug helper to print the ASN.1 structure
+				dumpASN1Structure(encodedTicket)
 				return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
 			}
 		}
 	}
 
-	// Validation logging
+	// Add detailed validation logging
 	fmt.Printf("[+] Successfully parsed KRB-CRED\n")
 	fmt.Printf("    Version: %d\n", krbCred.Pvno)
 	fmt.Printf("    MsgType: %d\n", krbCred.MsgType)
@@ -361,6 +364,55 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	}
 
 	return &krbCred, nil
+}
+
+// Add ASN.1 structure dumping helper
+func dumpASN1Structure(data []byte) {
+	fmt.Println("\n[*] ASN.1 Structure Dump:")
+	dumpASN1Level(data, "", 0)
+}
+
+func dumpASN1Level(data []byte, prefix string, level int) {
+	if len(data) < 2 {
+		return
+	}
+
+	for len(data) >= 2 {
+		if len(data) < 2 {
+			break
+		}
+
+		tag := int(data[0])
+		class := tag >> 6
+		constructed := (tag & 0x20) == 0x20
+		tagNumber := tag & 0x1F
+
+		length := int(data[1])
+		offset := 2
+
+		if length&0x80 != 0 {
+			// Long form
+			lengthBytes := length & 0x7F
+			length = 0
+			for i := 0; i < lengthBytes && offset < len(data); i++ {
+				length = length<<8 | int(data[offset])
+				offset++
+			}
+		}
+
+		if offset+length > len(data) {
+			break
+		}
+
+		fmt.Printf("%s[+] Class: %d, Constructed: %v, Tag: %d, Length: %d\n",
+			prefix, class, constructed, tagNumber, length)
+
+		if constructed && length > 0 {
+			dumpASN1Level(data[offset:offset+length], prefix+"  ", level+1)
+		}
+
+		data = data[offset+length:]
+	}
 }
 
 /*
