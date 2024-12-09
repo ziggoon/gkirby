@@ -378,6 +378,21 @@ func (t TicketFlags) String() string {
 asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
+	fmt.Printf("[+] Starting detailed ASN.1 analysis:\n")
+	DetailedDumpASN1(encodedTicket, "  ")
+
+	fmt.Printf("[+] Attempting manual parse:\n")
+	err := debugParseASN1(encodedTicket)
+	if err != nil {
+		fmt.Printf("[-] Manual parse error: %v\n", err)
+	}
+
+	fmt.Printf("[+] Raw parse attempt:\n")
+	err = parseKrbCredRaw(encodedTicket)
+	if err != nil {
+		fmt.Printf("[-] Raw parse error: %v\n", err)
+	}
+
 	fmt.Printf("[+] raw bytes: % X\n", encodedTicket)
 	var krbCred KrbCred
 	rest, err := asn1.Unmarshal(encodedTicket, &krbCred) // No need for UnmarshalWithParams
@@ -389,6 +404,118 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	}
 
 	return &krbCred, nil
+}
+
+func DetailedDumpASN1(data []byte, indent string) {
+	var raw asn1.RawValue
+	rest, err := asn1.Unmarshal(data, &raw)
+	if err != nil {
+		fmt.Printf("%sError: %v\n", indent, err)
+		return
+	}
+
+	fmt.Printf("%sClass: %d, Tag: %d, IsCompound: %v, Len: %d\n",
+		indent, raw.Class, raw.Tag, raw.IsCompound, len(raw.Bytes))
+	fmt.Printf("%sRaw Bytes: % X\n", indent, raw.FullBytes[:20]) // Print first 20 bytes
+	fmt.Printf("%sContent Bytes: % X\n", indent, raw.Bytes[:20]) // Print first 20 bytes of content
+
+	if raw.IsCompound {
+		remaining := raw.Bytes
+		for len(remaining) > 0 {
+			var innerRaw asn1.RawValue
+			var err error
+			remaining, err = asn1.Unmarshal(remaining, &innerRaw)
+			if err != nil {
+				fmt.Printf("%s  Error parsing compound: %v\n", indent, err)
+				break
+			}
+			DetailedDumpASN1(innerRaw.FullBytes, indent+"  ")
+		}
+	}
+
+	if len(rest) > 0 {
+		fmt.Printf("%sRemaining: %d bytes\n", indent, len(rest))
+		DetailedDumpASN1(rest, indent)
+	}
+}
+
+func debugParseASN1(data []byte) error {
+	var outer asn1.RawValue
+	_, err := asn1.Unmarshal(data, &outer)
+	if err != nil {
+		return fmt.Errorf("outer unmarshal failed: %v", err)
+	}
+	fmt.Printf("Outer: Class=%d, Tag=%d, IsCompound=%v, Len=%d\n",
+		outer.Class, outer.Tag, outer.IsCompound, len(outer.Bytes))
+
+	// Try to parse the sequence inside the APPLICATION
+	var seq asn1.RawValue
+	_, err = asn1.Unmarshal(outer.Bytes, &seq)
+	if err != nil {
+		return fmt.Errorf("sequence unmarshal failed: %v", err)
+	}
+	fmt.Printf("Sequence: Class=%d, Tag=%d, IsCompound=%v, Len=%d\n",
+		seq.Class, seq.Tag, seq.IsCompound, len(seq.Bytes))
+
+	// Try each field
+	contents := seq.Bytes
+	for i := 0; i < 4; i++ { // We expect 4 fields (pvno, msgtype, tickets, encpart)
+		var field asn1.RawValue
+		var err error
+		contents, err = asn1.Unmarshal(contents, &field)
+		if err != nil {
+			return fmt.Errorf("field %d unmarshal failed: %v", i, err)
+		}
+		fmt.Printf("Field %d: Class=%d, Tag=%d, IsCompound=%v, Len=%d\n",
+			i, field.Class, field.Tag, field.IsCompound, len(field.Bytes))
+	}
+
+	return nil
+}
+
+func parseLengthBytes(data []byte) (length int, bytesUsed int) {
+	if len(data) == 0 {
+		return 0, 0
+	}
+
+	// Short form
+	if data[0] < 0x80 {
+		return int(data[0]), 1
+	}
+
+	// Long form
+	numBytes := int(data[0] & 0x7f)
+	if numBytes == 0 || numBytes > len(data)-1 {
+		return 0, 0
+	}
+
+	length = 0
+	for i := 0; i < numBytes; i++ {
+		length = length<<8 | int(data[i+1])
+	}
+
+	return length, numBytes + 1
+}
+
+func parseKrbCredRaw(data []byte) error {
+	if len(data) < 2 {
+		return fmt.Errorf("data too short")
+	}
+
+	// Try to identify APPLICATION tag
+	if data[0] != 0x76 { // APPLICATION 22 should be 0x76
+		return fmt.Errorf("expected APPLICATION 22 tag (0x76), got %02x", data[0])
+	}
+
+	// Get length of APPLICATION content
+	length, lenBytes := parseLengthBytes(data[1:])
+	offset := 1 + lenBytes
+
+	fmt.Printf("APPLICATION 22 content length: %d\n", length)
+	fmt.Printf("First few bytes of content: % X\n", data[offset:offset+20])
+	fmt.Printf("Full bytes: % X\n", data)
+
+	return nil
 }
 
 func DumpASN1(data []byte, indent string) {
