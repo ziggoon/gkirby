@@ -74,26 +74,36 @@ type KrbTicket struct {
 }
 
 type PrincipalName struct {
-	NameType   int32    `asn1:"tag:0,explicit"`
-	NameString []string `asn1:"tag:1,explicit"` // SEQUENCE OF is handled automatically for slices
+	NameType   int32    `asn1:"tag:0"`
+	NameString []string `asn1:"tag:1,set"` // Using set since we saw it's a compound
 }
 
+// KrbCred matches [APPLICATION 22]
 type KrbCred struct {
-	Pvno    int32          `asn1:"tag:0,explicit"`
-	MsgType int32          `asn1:"tag:1,explicit"`
-	Tickets []Ticket       `asn1:"tag:2,explicit"`
-	EncPart EncKrbCredPart `asn1:"tag:3,explicit,optional"`
+	Pvno    int32          `asn1:"tag:0"`          // [0] INTEGER
+	MsgType int32          `asn1:"tag:1"`          // [1] INTEGER
+	Tickets []Ticket       `asn1:"tag:2,set"`      // [2] SEQUENCE OF
+	EncPart EncKrbCredPart `asn1:"tag:3,optional"` // [3] EncryptedData
 }
 
-type EncKrbCredPart struct {
-	TicketInfo []KrbCredInfo `asn1:"explicit,tag:0"`
-}
-
+// Ticket matches [APPLICATION 1]
 type Ticket struct {
-	TktVno  int32         `asn1:"tag:0,explicit"`
-	Realm   string        `asn1:"tag:1,explicit"`
-	SName   PrincipalName `asn1:"tag:2,explicit"`
-	EncPart EncryptedData `asn1:"tag:3,explicit"`
+	TktVno  int32         `asn1:"tag:0"` // [0] INTEGER
+	Realm   string        `asn1:"tag:1"` // [1] Realm
+	SName   PrincipalName `asn1:"tag:2"` // [2] PrincipalName
+	EncPart EncryptedData `asn1:"tag:3"` // [3] EncryptedData
+}
+
+// EncryptedData structure
+type EncryptedData struct {
+	EType  int32  `asn1:"tag:0"`          // [0] Int32
+	KVNO   *int32 `asn1:"tag:1,optional"` // [1] UInt32 OPTIONAL
+	Cipher []byte `asn1:"tag:2"`          // [2] OCTET STRING
+}
+
+// EncKrbCredPart structure
+type EncKrbCredPart struct {
+	TicketInfo []KrbCredInfo `asn1:"tag:0"`
 }
 
 type KrbCredInfo struct {
@@ -113,12 +123,6 @@ type KrbCredInfo struct {
 type EncryptionKey struct {
 	KeyType  int32  `asn1:"tag:0,explicit"`
 	KeyValue []byte `asn1:"tag:1,explicit"`
-}
-
-type EncryptedData struct {
-	EType  int32  `asn1:"tag:0,explicit"`
-	KVNO   *int32 `asn1:"tag:1,explicit,optional"` // Using pointer for OPTIONAL
-	Cipher []byte `asn1:"tag:2,explicit"`
 }
 
 type Elevation struct {
@@ -324,45 +328,33 @@ asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[DEBUG] Parsing ASN.1 data of length %d\n", len(encodedTicket))
-	fmt.Printf("[DEBUG] First 16 bytes of ticket: % X\n", encodedTicket[:16])
 
-	// First, parse just the outer APPLICATION structure
+	// First parse the outer APPLICATION 22 wrapper
 	var outer asn1.RawValue
-	_, err := asn1.Unmarshal(encodedTicket, &outer)
+	rest, err := asn1.Unmarshal(encodedTicket, &outer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse outer structure: %v", err)
 	}
-	fmt.Printf("[DEBUG] Outer structure - Class: %d, Tag: %d, IsCompound: %v, Length: %d\n",
-		outer.Class, outer.Tag, outer.IsCompound, len(outer.Bytes))
+
+	if len(rest) > 0 {
+		fmt.Printf("[DEBUG] Warning: %d bytes left after outer structure\n", len(rest))
+	}
 
 	if outer.Class != asn1.ClassApplication || outer.Tag != 22 {
 		return nil, fmt.Errorf("unexpected outer structure: class %d, tag %d", outer.Class, outer.Tag)
 	}
 
-	// Now parse the inner SEQUENCE
-	var inner asn1.RawValue
-	innerRest, err := asn1.Unmarshal(outer.Bytes, &inner)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse inner sequence: %v", err)
-	}
-	fmt.Printf("[DEBUG] Inner structure - Class: %d, Tag: %d, IsCompound: %v, Length: %d\n",
-		inner.Class, inner.Tag, inner.IsCompound, len(inner.Bytes))
-
-	if len(innerRest) > 0 {
-		fmt.Printf("[DEBUG] Warning: %d bytes left after inner sequence\n", len(innerRest))
-	}
-
-	// Now try to parse the actual KrbCred structure from the inner bytes
+	// Parse the actual KrbCred structure from the inner bytes
 	var krbCred KrbCred
-	_, err = asn1.Unmarshal(inner.Bytes, &krbCred)
+	_, err = asn1.Unmarshal(outer.Bytes, &krbCred)
 	if err != nil {
-		fmt.Printf("[DEBUG] Failed to parse KrbCred structure: %v\n", err)
-		// Dump the first few bytes of the inner content for debugging
-		fmt.Printf("[DEBUG] Inner bytes: % X\n", inner.Bytes[:min(32, len(inner.Bytes))])
 		return nil, fmt.Errorf("failed to parse KrbCred structure: %v", err)
 	}
 
-	// Validate the parsed data
+	// Validate
+	if krbCred.Pvno != 5 {
+		return nil, fmt.Errorf("unexpected protocol version: %d", krbCred.Pvno)
+	}
 	if krbCred.MsgType != 22 {
 		return nil, fmt.Errorf("unexpected message type: %d", krbCred.MsgType)
 	}
