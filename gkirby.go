@@ -76,8 +76,12 @@ type KrbTicket struct {
 type KrbCred struct {
 	Pvno    int           `asn1:"explicit,tag:0"`
 	MsgType int           `asn1:"explicit,tag:1"`
-	Tickets []Ticket      `asn1:"explicit,tag:2"`
+	Tickets Tickets       `asn1:"explicit,tag:2"`
 	EncPart EncryptedData `asn1:"explicit,tag:3"`
+}
+
+type Tickets struct {
+	Tickets []Ticket `asn1:"sequence"`
 }
 
 type PrincipalName struct {
@@ -94,7 +98,7 @@ type Ticket struct {
 
 type EncryptedData struct {
 	EType  int32  `asn1:"explicit,tag:0"`
-	KvNo   int32  `asn1:"optional,explicit,tag:1"`
+	KvNo   int32  `asn1:"optional,explicit,tag:1,optional"`
 	Cipher []byte `asn1:"explicit,tag:2"`
 }
 
@@ -325,26 +329,29 @@ asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[*] Parsing ticket data (%d bytes)\n", len(encodedTicket))
-
-	// Print first few bytes for debugging
-	if len(encodedTicket) > 16 {
-		fmt.Printf("[*] First 16 bytes: % X\n", encodedTicket[:16])
-	}
+	fmt.Printf("[*] First 16 bytes: % X\n", encodedTicket[:16])
 
 	var krbCred KrbCred
-	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
+	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
 	if err != nil {
 		fmt.Printf("[-] Failed to unmarshal KRB-CRED: %v\n", err)
+		// Try to unmarshal with different parameters for debugging
+		_, err2 := asn1.Unmarshal(encodedTicket, &krbCred)
+		if err2 != nil {
+			fmt.Printf("[-] Also failed without params: %v\n", err2)
+		}
 		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
 	}
 
 	if len(rest) > 0 {
 		fmt.Printf("[*] Warning: %d bytes remaining after KRB-CRED\n", len(rest))
+		fmt.Printf("[*] Remaining bytes: % X\n", rest)
 	}
 
-	// Add some validation prints
-	fmt.Printf("[*] Parsed KRB-CRED: Version=%d, MsgType=%d, #Tickets=%d\n",
-		krbCred.Pvno, krbCred.MsgType, len(krbCred.Tickets))
+	fmt.Printf("[*] Successfully parsed KRB-CRED:\n")
+	fmt.Printf("    Version: %d\n", krbCred.Pvno)
+	fmt.Printf("    MsgType: %d\n", krbCred.MsgType)
+	fmt.Printf("    Number of tickets: %d\n", len(krbCred.Tickets.Tickets))
 
 	return &krbCred, nil
 }
