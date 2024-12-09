@@ -328,7 +328,7 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 
 	// First try parsing just the raw value to see what we're dealing with
 	var raw asn1.RawValue
-	rest, err := asn1.Unmarshal(encodedTicket, &raw)
+	_, err := asn1.Unmarshal(encodedTicket, &raw)
 	if err == nil {
 		fmt.Printf("[DEBUG] Raw ASN.1 - Class: %d, Tag: %d, IsCompound: %v, Length: %d\n",
 			raw.Class, raw.Tag, raw.IsCompound, len(raw.Bytes))
@@ -336,7 +336,7 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 
 	// Now try to parse the actual KrbCred
 	var krbCred KrbCred
-	rest, err = asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
+	_, err = asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
 	}
