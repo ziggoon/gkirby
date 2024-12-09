@@ -374,51 +374,96 @@ func (t TicketFlags) String() string {
 asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
-	fmt.Printf("[DEBUG] Parsing ticket data of length: %d\n", len(encodedTicket))
-	fmt.Printf("[DEBUG] First few bytes: % X\n", encodedTicket[:20])
-
-	// First try parsing just the outer APPLICATION tag
+	// First parse the outer APPLICATION 22 tag
 	var outer asn1.RawValue
 	_, err := asn1.Unmarshal(encodedTicket, &outer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse outer tag: %v", err)
+		return nil, fmt.Errorf("failed to parse outer APPLICATION tag: %v", err)
 	}
-	fmt.Printf("[DEBUG] Outer tag parsed - Class: %d, Tag: %d, IsCompound: %v, Len: %d\n",
-		outer.Class, outer.Tag, outer.IsCompound, len(outer.Bytes))
-	fmt.Printf("[DEBUG] Outer content first bytes: % X\n", outer.Bytes[:20])
+	if outer.Class != 1 || outer.Tag != 22 {
+		return nil, fmt.Errorf("unexpected outer tag: class %d, tag %d", outer.Class, outer.Tag)
+	}
 
-	// Try parsing the SEQUENCE
+	// Parse the outer SEQUENCE
 	var seq asn1.RawValue
-	_, err = asn1.Unmarshal(outer.Bytes, &seq)
+	remaining, err := asn1.Unmarshal(outer.Bytes, &seq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse sequence: %v", err)
-	}
-	fmt.Printf("[DEBUG] Sequence parsed - Class: %d, Tag: %d, IsCompound: %v, Len: %d\n",
-		seq.Class, seq.Tag, seq.IsCompound, len(seq.Bytes))
-
-	if seq.Class != 0 || seq.Tag != 16 {
-		return nil, fmt.Errorf("unexpected sequence tag: class %d, tag %d", seq.Class, seq.Tag)
+		return nil, fmt.Errorf("failed to parse outer SEQUENCE: %v", err)
 	}
 
-	// Now parse the actual content using a simplified struct
-	var content struct {
-		Pvno    int           `asn1:"explicit,tag:0"`
-		MsgType int           `asn1:"explicit,tag:1"`
-		Tickets []Ticket      `asn1:"explicit,tag:2"`
-		EncPart EncryptedData `asn1:"explicit,tag:3"`
-	}
+	// Create our KrbCred struct
+	krbCred := &KrbCred{}
 
-	_, err = asn1.Unmarshal(seq.Bytes, &content)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal sequence content: %v", err)
-	}
+	// Process each tagged component in the sequence
+	remaining = seq.Bytes
+	for len(remaining) > 0 {
+		var tag asn1.RawValue
+		var err error
+		remaining, err = asn1.Unmarshal(remaining, &tag)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse tag: %v", err)
+		}
 
-	// Build our KrbCred structure
-	krbCred := &KrbCred{
-		Pvno:    content.Pvno,
-		MsgType: content.MsgType,
-		Tickets: content.Tickets,
-		EncPart: content.EncPart,
+		// All our fields are CONTEXT specific (class 2)
+		if tag.Class != 2 {
+			return nil, fmt.Errorf("unexpected tag class: %d", tag.Class)
+		}
+
+		switch tag.Tag {
+		case 0: // pvno
+			var val int
+			_, err = asn1.Unmarshal(tag.Bytes, &val)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse pvno: %v", err)
+			}
+			krbCred.Pvno = val
+
+		case 1: // msg-type
+			var val int
+			_, err = asn1.Unmarshal(tag.Bytes, &val)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse msg-type: %v", err)
+			}
+			krbCred.MsgType = val
+
+		case 2: // tickets sequence
+			var ticketSeq asn1.RawValue
+			_, err = asn1.Unmarshal(tag.Bytes, &ticketSeq)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse tickets sequence: %v", err)
+			}
+
+			// Parse each ticket in the sequence
+			ticketBytes := ticketSeq.Bytes
+			var tickets []Ticket
+			for len(ticketBytes) > 0 {
+				var ticketRaw asn1.RawValue
+				var err error
+				ticketBytes, err = asn1.Unmarshal(ticketBytes, &ticketRaw)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse ticket: %v", err)
+				}
+
+				var ticket Ticket
+				_, err = asn1.Unmarshal(ticketRaw.FullBytes, &ticket)
+				if err != nil {
+					return nil, fmt.Errorf("failed to unmarshal ticket: %v", err)
+				}
+				tickets = append(tickets, ticket)
+			}
+			krbCred.Tickets = tickets
+
+		case 3: // enc-part
+			var encPart EncryptedData
+			_, err = asn1.Unmarshal(tag.Bytes, &encPart)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse enc-part: %v", err)
+			}
+			krbCred.EncPart = encPart
+
+		default:
+			return nil, fmt.Errorf("unexpected tag: %d", tag.Tag)
+		}
 	}
 
 	return krbCred, nil
