@@ -18,22 +18,9 @@ const (
 )
 
 // enums
-type PrincipalName uint
 type LogonType uint32
 type TicketFlags uint32
 type KerbProtocolMessageType uint32
-
-const (
-	NT_UNKNOWN        PrincipalName = iota
-	NT_PRINCIPAL      PrincipalName = iota
-	NT_SRV_INST       PrincipalName = iota
-	NT_SRV_HST        PrincipalName = iota
-	NT_SRV_XHST       PrincipalName = iota
-	NT_UID            PrincipalName = iota
-	NT_X500_PRINCIPAL PrincipalName = iota
-	NT_SMTP_NAME      PrincipalName = iota
-	NT_ENTERPRISE     PrincipalName = iota
-)
 
 const (
 	LOGON32_LOGON_INTERACTIVE       LogonType = 2
