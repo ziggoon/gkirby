@@ -327,64 +327,14 @@ func (t TicketFlags) String() string {
 asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
-	cred := &KrbCred{}
+	var cred KrbCred
 	rest, err := asn1.UnmarshalWithParams(encodedTicket, &cred, "application,tag:22")
 	if err != nil {
-		// Log the specific error and remaining bytes
 		fmt.Printf("Decode error: %v\n", err)
 		fmt.Printf("Remaining bytes: %X\n", rest)
 		return nil, fmt.Errorf("failed to unmarshal KRB-CRED wrapper: %v", err)
 	}
-	return cred, nil
-}
-
-// Add ASN.1 structure dumping helper
-func dumpASN1Structure(data []byte) {
-	fmt.Println("\n[*] ASN.1 Structure Dump:")
-	dumpASN1Level(data, "", 0)
-}
-
-func dumpASN1Level(data []byte, prefix string, level int) {
-	if len(data) < 2 {
-		return
-	}
-
-	for len(data) >= 2 {
-		if len(data) < 2 {
-			break
-		}
-
-		tag := int(data[0])
-		class := tag >> 6
-		constructed := (tag & 0x20) == 0x20
-		tagNumber := tag & 0x1F
-
-		length := int(data[1])
-		offset := 2
-
-		if length&0x80 != 0 {
-			// Long form
-			lengthBytes := length & 0x7F
-			length = 0
-			for i := 0; i < lengthBytes && offset < len(data); i++ {
-				length = length<<8 | int(data[offset])
-				offset++
-			}
-		}
-
-		if offset+length > len(data) {
-			break
-		}
-
-		fmt.Printf("%s[+] Class: %d, Constructed: %v, Tag: %d, Length: %d\n",
-			prefix, class, constructed, tagNumber, length)
-
-		if constructed && length > 0 {
-			dumpASN1Level(data[offset:offset+length], prefix+"  ", level+1)
-		}
-
-		data = data[offset+length:]
-	}
+	return &cred, nil
 }
 
 /*
