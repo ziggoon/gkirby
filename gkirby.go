@@ -80,11 +80,14 @@ type KrbTicket struct {
 //	   enc-part[3] EncryptedData -- EncKrbCredPart
 //	}
 type KrbCred struct {
-	ASNTAG  struct{}       `asn1:"application,tag:22"`
 	Pvno    int            `asn1:"explicit,tag:0"`
 	MsgType int            `asn1:"explicit,tag:1"`
 	Tickets []Ticket       `asn1:"explicit,tag:2"`
 	EncPart EncKrbCredPart `asn1:"explicit,tag:3"`
+}
+
+type KrbCredWrapper struct {
+	Content KrbCred `asn1:"application,tag:22"`
 }
 
 //	Ticket::= [APPLICATION 1] SEQUENCE {
@@ -94,7 +97,6 @@ type KrbCred struct {
 //	       enc-part[3] EncryptedData -- EncTicketPart
 //	}
 type Ticket struct {
-	ASNTAG  struct{}      `asn1:"application,tag:1"`
 	TktVno  int32         `asn1:"explicit,tag:0"`
 	Realm   string        `asn1:"explicit,tag:1"`
 	SName   PrincipalName `asn1:"explicit,tag:2"`
@@ -378,7 +380,7 @@ asn.1 helper funcs
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[+] raw bytes: % X\n", encodedTicket)
 	var krbCred KrbCred
-	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
+	rest, err := asn1.Unmarshal(encodedTicket, &krbCred) // No need for UnmarshalWithParams
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
 	}
