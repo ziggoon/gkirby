@@ -79,15 +79,11 @@ type KrbTicket struct {
 //	   tickets[2] SEQUENCE OF Ticket,
 //	   enc-part[3] EncryptedData -- EncKrbCredPart
 //	}
-type KrbCredContent struct {
+type KrbCred struct {
 	Pvno    int           `asn1:"explicit,tag:0"`
 	MsgType int           `asn1:"explicit,tag:1"`
 	Tickets []Ticket      `asn1:"explicit,tag:2"`
 	EncPart EncryptedData `asn1:"explicit,tag:3"`
-}
-
-type KrbCred struct {
-	KrbCredContent KrbCredContent `asn1:"application,tag:22,sequence"`
 }
 
 //	Ticket::= [APPLICATION 1] SEQUENCE {
@@ -400,14 +396,32 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[DEBUG] Sequence parsed - Class: %d, Tag: %d, IsCompound: %v, Len: %d\n",
 		seq.Class, seq.Tag, seq.IsCompound, len(seq.Bytes))
 
-	// Now try our actual struct
-	var krbCred KrbCred
-	_, err = asn1.Unmarshal(encodedTicket, &krbCred)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
+	if seq.Class != 0 || seq.Tag != 16 {
+		return nil, fmt.Errorf("unexpected sequence tag: class %d, tag %d", seq.Class, seq.Tag)
 	}
 
-	return &krbCred, nil
+	// Now parse the actual content using a simplified struct
+	var content struct {
+		Pvno    int           `asn1:"explicit,tag:0"`
+		MsgType int           `asn1:"explicit,tag:1"`
+		Tickets []Ticket      `asn1:"explicit,tag:2"`
+		EncPart EncryptedData `asn1:"explicit,tag:3"`
+	}
+
+	_, err = asn1.Unmarshal(seq.Bytes, &content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal sequence content: %v", err)
+	}
+
+	// Build our KrbCred structure
+	krbCred := &KrbCred{
+		Pvno:    content.Pvno,
+		MsgType: content.MsgType,
+		Tickets: content.Tickets,
+		EncPart: content.EncPart,
+	}
+
+	return krbCred, nil
 }
 
 func DetailedDumpASN1(data []byte, indent string) {
