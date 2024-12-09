@@ -322,15 +322,9 @@ func (t TicketFlags) String() string {
 asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
-	var krbCred KrbCred
-	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
-	}
-	if len(rest) > 0 {
-		return nil, fmt.Errorf("extra data after KRB-CRED")
-	}
-	return &krbCred, nil
+	fmt.Printf("[+] ticket data:\n% X\n", encodedTicket)
+
+	return nil, nil
 }
 
 /*
