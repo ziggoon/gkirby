@@ -73,15 +73,19 @@ type KrbTicket struct {
 	KrbCred        *KrbCred
 }
 
-type KrbCred struct {
-	// Raw content in case we need to debug
-	Raw []byte `asn1:"raw"`
+type KrbCredWrapper struct {
+	Cred KrbCred `asn1:"explicit"`
+}
 
-	// Using explicit tagging since we see the compound structure
-	Pvno    int32          `asn1:"explicit,tag:0"`
-	MsgType int32          `asn1:"explicit,tag:1"`
-	Tickets []Ticket       `asn1:"explicit,tag:2"`
+type KrbCred struct {
+	Pvno    int            `asn1:"explicit,tag:0"`
+	MsgType int            `asn1:"explicit,tag:1"`
+	Tickets []RawTicket    `asn1:"explicit,tag:2"`
 	EncPart EncKrbCredPart `asn1:"explicit,tag:3,optional"`
+}
+
+type RawTicket struct {
+	Raw asn1.RawContent `asn1:"raw"`
 }
 
 // Ticket matches [APPLICATION 1]
@@ -335,27 +339,38 @@ asn.1 helper funcs
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[DEBUG] Parsing ASN.1 data of length %d\n", len(encodedTicket))
 
-	// First, parse the APPLICATION 22 wrapper
+	// First parse the APPLICATION 22 wrapper
 	var outer asn1.RawValue
-	_, err := asn1.Unmarshal(encodedTicket, &outer)
+	rest, err := asn1.Unmarshal(encodedTicket, &outer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse outer structure: %v", err)
+		return nil, fmt.Errorf("failed to parse outer APPLICATION wrapper: %v", err)
 	}
 
 	if outer.Class != asn1.ClassApplication || outer.Tag != 22 {
 		return nil, fmt.Errorf("unexpected outer structure: class %d, tag %d", outer.Class, outer.Tag)
 	}
 
-	// Now parse the KrbCred structure from the inner bytes
-	var krbCred KrbCred
-	_, err = asn1.Unmarshal(outer.Bytes, &krbCred)
-	if err != nil {
-		// Let's dump the raw bytes if we hit an error
-		fmt.Printf("[DEBUG] Raw bytes of failed parse: % X\n", outer.Bytes[:min(32, len(outer.Bytes))])
-		return nil, fmt.Errorf("failed to parse KrbCred structure: %v", err)
+	if len(rest) > 0 {
+		fmt.Printf("[DEBUG] Warning: %d bytes left after outer structure\n", len(rest))
 	}
 
-	// Add some validation
+	// Now parse the inner SEQUENCE wrapper with KrbCred
+	var wrapper KrbCredWrapper
+	_, err = asn1.Unmarshal(outer.Bytes, &wrapper)
+	if err != nil {
+		fmt.Printf("[DEBUG] Raw bytes at failure: % X\n", outer.Bytes[:min(32, len(outer.Bytes))])
+		return nil, fmt.Errorf("failed to parse KrbCred wrapper: %v", err)
+	}
+
+	// Copy to maintain existing structure
+	krbCred := &KrbCred{
+		Pvno:    wrapper.Cred.Pvno,
+		MsgType: wrapper.Cred.MsgType,
+		Tickets: wrapper.Cred.Tickets,
+		EncPart: wrapper.Cred.EncPart,
+	}
+
+	// Basic validation
 	if krbCred.Pvno != 5 {
 		return nil, fmt.Errorf("unexpected protocol version: got %d, want 5", krbCred.Pvno)
 	}
@@ -369,7 +384,7 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("  Message Type: %d\n", krbCred.MsgType)
 	fmt.Printf("  Number of tickets: %d\n", len(krbCred.Tickets))
 
-	return &krbCred, nil
+	return krbCred, nil
 }
 
 // Helper function for min
