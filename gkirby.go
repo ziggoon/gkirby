@@ -375,7 +375,7 @@ asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[+] raw bytes: % X\n", encodedTicket)
-	var krbCred *KrbCred
+	var krbCred KrbCred
 	rest, err := asn1.Unmarshal(encodedTicket, &krbCred)
 	if err != nil {
 		return nil, err
@@ -384,7 +384,7 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 		fmt.Printf("[!] extra bytes: % X\n", rest)
 	}
 
-	return krbCred, nil
+	return &krbCred, nil
 }
 
 func DumpASN1(data []byte, indent string) {
