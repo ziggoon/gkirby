@@ -178,6 +178,12 @@ type LsaString struct {
 	Buffer        uintptr
 }
 
+type LsaStringOut struct {
+	Length        uint16
+	MaximumLength uint16
+	Buffer        uintptr
+}
+
 type SecurityHandle struct {
 	LowPart  uintptr
 	HighPart uintptr
@@ -232,17 +238,16 @@ type KerbRetrieveTktRequest struct {
 }
 
 type KerbRetrieveTktResponse struct {
-	MessageType KerbProtocolMessageType
-	Ticket      KerbExternalTicket
+	Ticket KerbExternalTicket
 }
 
 type KerbExternalTicket struct {
-	ServiceName         LsaString
-	TargetName          LsaString
-	ClientName          LsaString
-	DomainName          LsaString
-	TargetDomainName    LsaString
-	AltTargetDomainName LsaString
+	ServiceName         uintptr
+	TargetName          uintptr
+	ClientName          uintptr
+	DomainName          LsaStringOut
+	TargetDomainName    LsaStringOut
+	AltTargetDomainName LsaStringOut
 	SessionKey          KerbCryptoKey
 	TicketFlags         uint32
 	Flags               uint32
