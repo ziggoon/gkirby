@@ -483,6 +483,7 @@ func newLSAString(s string) *LsaString {
 	}
 }
 
+// asdas
 func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LUID, targetName string) (*KrbCred, error) {
 	if lsaHandle == 0 {
 		return nil, fmt.Errorf("invalid LSA handle")
