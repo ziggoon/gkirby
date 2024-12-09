@@ -74,7 +74,7 @@ type KrbTicket struct {
 }
 
 type KrbCredWrapper struct {
-	Credential KrbCred `asn1:"sequence"` // This matches Rubeus' outer SEQUENCE wrapper
+	Credential KrbCred `asn1:"application,tag:22"` // This matches Rubeus' outer SEQUENCE wrapper
 }
 
 type KrbCred struct {
@@ -85,7 +85,7 @@ type KrbCred struct {
 }
 
 type EncKrbCredPart struct {
-	TicketInfo []KrbCredInfo `asn1:"tag:0,explicit,optional"`
+	TicketInfo []KrbCredInfo `asn1:"tag:0,explicit,sequence,optional"`
 }
 
 type PrincipalName struct {
@@ -157,8 +157,8 @@ type SecurityLogonSessionData struct {
 }
 
 type PrincipalNameData struct {
-	nameType   PrincipalName
-	nameString []string
+	nameType   PrincipalName `asn1:"tag:0,explicit"`
+	nameString []string      `asn1:"tag:1,explicit,sequence"`
 }
 
 type HostAddresses []HostAddress
@@ -335,23 +335,26 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[*] First 32 bytes: % X\n", encodedTicket[:32])
 
 	var wrapper KrbCredWrapper
-
-	// First decode the outer APPLICATION 22 wrapper
-	_, err := asn1.UnmarshalWithParams(encodedTicket, &wrapper, "application,tag:22")
+	rest, err := asn1.UnmarshalWithParams(encodedTicket, &wrapper, "application,tag:22")
 	if err != nil {
 		fmt.Printf("[-] Failed to decode outer wrapper: %v\n", err)
-		dumpASN1Structure(encodedTicket)
+		fmt.Printf("[-] Remaining bytes: %d\n", len(rest))
+		dumpASN1Structure(encodedTicket) // This is good that you have this
 		return nil, fmt.Errorf("failed to unmarshal KRB-CRED wrapper: %v", err)
 	}
 
-	// Return the inner credential
+	// Add validation of parsed data
 	cred := wrapper.Credential
-
-	// Validation logging
 	fmt.Printf("[+] Successfully parsed KRB-CRED\n")
 	fmt.Printf("    Version: %d\n", cred.Pvno)
 	fmt.Printf("    MsgType: %d\n", cred.MsgType)
 	fmt.Printf("    Number of tickets: %d\n", len(cred.Tickets))
+
+	// Add validation for the first ticket if available
+	if len(cred.Tickets) > 0 {
+		fmt.Printf("    First ticket realm: %s\n", cred.Tickets[0].Realm)
+		fmt.Printf("    First ticket EType: %d\n", cred.Tickets[0].EncPart.EType)
+	}
 
 	return &cred, nil
 }
