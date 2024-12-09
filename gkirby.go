@@ -79,15 +79,15 @@ type KrbTicket struct {
 //	   tickets[2] SEQUENCE OF Ticket,
 //	   enc-part[3] EncryptedData -- EncKrbCredPart
 //	}
-type KrbCred struct {
-	Pvno    int            `asn1:"explicit,tag:0"`
-	MsgType int            `asn1:"explicit,tag:1"`
-	Tickets []Ticket       `asn1:"explicit,tag:2"`
-	EncPart EncKrbCredPart `asn1:"explicit,tag:3"`
+type KrbCredContent struct {
+	Pvno    int           `asn1:"explicit,tag:0"`
+	MsgType int           `asn1:"explicit,tag:1"`
+	Tickets []Ticket      `asn1:"explicit,tag:2"`
+	EncPart EncryptedData `asn1:"explicit,tag:3"`
 }
 
-type KrbCredWrapper struct {
-	Content KrbCred `asn1:"application,tag:22"`
+type KrbCred struct {
+	KrbCredContent KrbCredContent `asn1:"application,tag:22,sequence"`
 }
 
 //	Ticket::= [APPLICATION 1] SEQUENCE {
