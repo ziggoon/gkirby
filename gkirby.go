@@ -87,13 +87,19 @@ type KrbTicket struct {
 }
 
 type KrbCred struct {
-	Pvno    int64          `asn1:"explicit,tag:0"`
-	MsgType int64          `asn1:"explicit,tag:1"`
-	Tickets []Ticket       `asn1:"explicit,tag:2"`
-	EncPart EncKrbCredPart `asn1:"explicit,tag:3"`
+	Pvno    int           `asn1:"explicit,tag:0"`
+	MsgType int           `asn1:"explicit,tag:1"`
+	Tickets []Ticket      `asn1:"explicit,tag:2"`
+	EncPart EncryptedData `asn1:"explicit,tag:3"`
+}
+
+type PrincipalName struct {
+	NameType   int32    `asn1:"explicit,tag:0"`
+	NameString []string `asn1:"explicit,tag:1"`
 }
 
 type Ticket struct {
+	TktVno  int           `asn1:"explicit,tag:0"`
 	Realm   string        `asn1:"explicit,tag:1"`
 	SName   PrincipalName `asn1:"explicit,tag:2"`
 	EncPart EncryptedData `asn1:"explicit,tag:3"`
@@ -101,12 +107,8 @@ type Ticket struct {
 
 type EncryptedData struct {
 	EType  int32  `asn1:"explicit,tag:0"`
-	KVNO   int32  `asn1:"optional,explicit,tag:1"`
+	KvNo   int32  `asn1:"optional,explicit,tag:1"`
 	Cipher []byte `asn1:"explicit,tag:2"`
-}
-
-type EncKrbCredPart struct {
-	TicketInfo []KrbCredInfo `asn1:"explicit,tag:0"`
 }
 
 type KrbCredInfo struct {
@@ -336,16 +338,27 @@ asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[*] Parsing ticket data (%d bytes)\n", len(encodedTicket))
+
+	// Print first few bytes for debugging
+	if len(encodedTicket) > 16 {
+		fmt.Printf("[*] First 16 bytes: % X\n", encodedTicket[:16])
+	}
+
 	var krbCred KrbCred
 	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
 	if err != nil {
 		fmt.Printf("[-] Failed to unmarshal KRB-CRED: %v\n", err)
 		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
 	}
+
 	if len(rest) > 0 {
-		fmt.Printf("[-] Warning: Extra data found after KRB-CRED\n")
-		return nil, fmt.Errorf("extra data after KRB-CRED")
+		fmt.Printf("[*] Warning: %d bytes remaining after KRB-CRED\n", len(rest))
 	}
+
+	// Add some validation prints
+	fmt.Printf("[*] Parsed KRB-CRED: Version=%d, MsgType=%d, #Tickets=%d\n",
+		krbCred.Pvno, krbCred.MsgType, len(krbCred.Tickets))
+
 	return &krbCred, nil
 }
 
