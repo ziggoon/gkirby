@@ -324,6 +324,7 @@ asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[DEBUG] Parsing ASN.1 data of length %d\n", len(encodedTicket))
+	fmt.Printf("[DEBUG] First 16 bytes of ticket: % X\n", encodedTicket[:16])
 
 	// First, parse just the outer APPLICATION structure
 	var outer asn1.RawValue
@@ -641,6 +642,9 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 			encodedTicket := make([]byte, encodedTicketSize)
 			copy(encodedTicket,
 				(*[1 << 30]byte)(unsafe.Pointer(response.Ticket.EncodedTicket))[:encodedTicketSize])
+
+			fmt.Printf("[DEBUG] Full ASN.1 structure:\n")
+			DumpASN1(encodedTicket, "  ")
 
 			fmt.Printf("[*] Attempting to parse ticket data...\n")
 			krbCred, err := parseTicketData(encodedTicket)
