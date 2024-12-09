@@ -73,22 +73,13 @@ type KrbTicket struct {
 	KrbCred        *KrbCred
 }
 
-type KrbCredWrapper struct {
-	Cred KrbCred `asn1:"explicit"`
-}
-
 type KrbCred struct {
-	Pvno    int            `asn1:"explicit,tag:0"`
-	MsgType int            `asn1:"explicit,tag:1"`
-	Tickets []RawTicket    `asn1:"explicit,tag:2"`
-	EncPart EncKrbCredPart `asn1:"explicit,tag:3,optional"`
+	Pvno    int
+	MsgType int
+	Tickets []Ticket
+	EncPart EncKrbCredPart
 }
 
-type RawTicket struct {
-	Raw asn1.RawContent `asn1:"raw"`
-}
-
-// Ticket matches [APPLICATION 1]
 type Ticket struct {
 	TktVno  int32         `asn1:"explicit,tag:0"`
 	Realm   string        `asn1:"explicit,tag:1"`
@@ -98,41 +89,40 @@ type Ticket struct {
 
 // PrincipalName matches the ASN.1 structure
 type PrincipalName struct {
-	NameType   int32    `asn1:"explicit,tag:0"`
-	NameString []string `asn1:"explicit,tag:1"`
+	NameType   int32
+	NameString []string
 }
 
-// EncryptedData structure
 type EncryptedData struct {
-	EType  int32  `asn1:"explicit,tag:0"`
-	KVNO   *int32 `asn1:"explicit,tag:1,optional"`
-	Cipher []byte `asn1:"explicit,tag:2"`
+	EType  int32
+	KVNO   int32
+	Cipher []byte
 }
 
 // EncKrbCredPart structure
 type EncKrbCredPart struct {
-	Raw        []byte        `asn1:"raw"`
-	TicketInfo []KrbCredInfo `asn1:"explicit,tag:0"`
+	Raw        []byte
+	TicketInfo []KrbCredInfo
 }
 
 // KrbCredInfo structure
 type KrbCredInfo struct {
-	Key       EncryptionKey   `asn1:"explicit,tag:0"`
-	PRealm    *string         `asn1:"explicit,tag:1,optional"`
-	PName     *PrincipalName  `asn1:"explicit,tag:2,optional"`
-	Flags     *asn1.BitString `asn1:"explicit,tag:3,optional"`
-	AuthTime  *time.Time      `asn1:"explicit,tag:4,optional,generalized"`
-	StartTime *time.Time      `asn1:"explicit,tag:5,optional,generalized"`
-	EndTime   *time.Time      `asn1:"explicit,tag:6,optional,generalized"`
-	RenewTill *time.Time      `asn1:"explicit,tag:7,optional,generalized"`
-	SRealm    *string         `asn1:"explicit,tag:8,optional"`
-	SName     *PrincipalName  `asn1:"explicit,tag:9,optional"`
-	CAddr     []HostAddress   `asn1:"explicit,tag:10,optional"`
+	Key       EncryptionKey
+	PRealm    *string
+	PName     *PrincipalName
+	Flags     *asn1.BitString
+	AuthTime  *time.Time
+	StartTime *time.Time
+	EndTime   *time.Time
+	RenewTill *time.Time
+	SRealm    *string
+	SName     *PrincipalName
+	CAddr     []HostAddress
 }
 
 type EncryptionKey struct {
-	KeyType  int32  `asn1:"tag:0,explicit"`
-	KeyValue []byte `asn1:"tag:1,explicit"`
+	KeyType  int32
+	KeyValue []byte
 }
 
 type Elevation struct {
@@ -168,8 +158,8 @@ type SecurityLogonSessionData struct {
 }
 
 type PrincipalNameData struct {
-	nameType   PrincipalName `asn1:"tag:0,explicit"`
-	nameString []string      `asn1:"tag:1,explicit,sequence"`
+	nameType   PrincipalName
+	nameString []string
 }
 
 type HostAddresses []HostAddress
@@ -337,65 +327,12 @@ func (t TicketFlags) String() string {
 asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
-	fmt.Printf("[DEBUG] Parsing ASN.1 data of length %d\n", len(encodedTicket))
+	// todo: parse
+	fmt.Printf("[+] raw bytes: % X\n", encodedTicket)
 
-	// First parse the APPLICATION 22 wrapper
-	var outer asn1.RawValue
-	rest, err := asn1.Unmarshal(encodedTicket, &outer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse outer APPLICATION wrapper: %v", err)
-	}
-
-	if outer.Class != asn1.ClassApplication || outer.Tag != 22 {
-		return nil, fmt.Errorf("unexpected outer structure: class %d, tag %d", outer.Class, outer.Tag)
-	}
-
-	if len(rest) > 0 {
-		fmt.Printf("[DEBUG] Warning: %d bytes left after outer structure\n", len(rest))
-	}
-
-	// Now parse the inner SEQUENCE wrapper with KrbCred
-	var wrapper KrbCredWrapper
-	_, err = asn1.Unmarshal(outer.Bytes, &wrapper)
-	if err != nil {
-		fmt.Printf("[DEBUG] Raw bytes at failure: % X\n", outer.Bytes[:min(32, len(outer.Bytes))])
-		return nil, fmt.Errorf("failed to parse KrbCred wrapper: %v", err)
-	}
-
-	// Copy to maintain existing structure
-	krbCred := &KrbCred{
-		Pvno:    wrapper.Cred.Pvno,
-		MsgType: wrapper.Cred.MsgType,
-		Tickets: wrapper.Cred.Tickets,
-		EncPart: wrapper.Cred.EncPart,
-	}
-
-	// Basic validation
-	if krbCred.Pvno != 5 {
-		return nil, fmt.Errorf("unexpected protocol version: got %d, want 5", krbCred.Pvno)
-	}
-
-	if krbCred.MsgType != 22 {
-		return nil, fmt.Errorf("unexpected message type: got %d, want 22", krbCred.MsgType)
-	}
-
-	fmt.Printf("[DEBUG] Successfully parsed KRB-CRED:\n")
-	fmt.Printf("  Protocol Version: %d\n", krbCred.Pvno)
-	fmt.Printf("  Message Type: %d\n", krbCred.MsgType)
-	fmt.Printf("  Number of tickets: %d\n", len(krbCred.Tickets))
-
-	return krbCred, nil
+	return nil, nil
 }
 
-// Helper function for min
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// DumpASN1 helper function for detailed ASN.1 structure analysis
 func DumpASN1(data []byte, indent string) {
 	var raw asn1.RawValue
 	rest, err := asn1.Unmarshal(data, &raw)
@@ -566,7 +503,6 @@ func newLSAString(s string) *LsaString {
 	}
 }
 
-// asdas
 func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LUID, targetName string) (*KrbCred, error) {
 	if lsaHandle == 0 {
 		return nil, fmt.Errorf("invalid LSA handle")
