@@ -505,7 +505,7 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 	request.MessageType = KerbRetrieveEncodedTicketMessage
 
 	if !isAdmin {
-		request.LogonId = windows.LUID{}
+		request.LogonId = windows.LUID{LowPart: 0, HighPart: 0}
 	} else {
 		request.LogonId = luid
 	}
