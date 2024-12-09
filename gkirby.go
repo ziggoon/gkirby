@@ -437,19 +437,37 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 			ticketBytes := ticketSeq.Bytes
 			var tickets []Ticket
 			for len(ticketBytes) > 0 {
-				var ticketRaw asn1.RawValue
+				var ticketOuterApp asn1.RawValue
 				var err error
-				ticketBytes, err = asn1.Unmarshal(ticketBytes, &ticketRaw)
+				ticketBytes, err = asn1.Unmarshal(ticketBytes, &ticketOuterApp)
 				if err != nil {
-					return nil, fmt.Errorf("failed to parse ticket: %v", err)
+					return nil, fmt.Errorf("failed to parse ticket APPLICATION tag: %v", err)
 				}
 
-				var ticket Ticket
-				_, err = asn1.Unmarshal(ticketRaw.FullBytes, &ticket)
-				if err != nil {
-					return nil, fmt.Errorf("failed to unmarshal ticket: %v", err)
+				// Verify it's APPLICATION 1
+				if ticketOuterApp.Class != 1 || ticketOuterApp.Tag != 1 {
+					return nil, fmt.Errorf("unexpected ticket tag: class %d, tag %d", ticketOuterApp.Class, ticketOuterApp.Tag)
 				}
-				tickets = append(tickets, ticket)
+
+				// Now parse the actual ticket sequence content
+				var ticket struct {
+					TktVno  int32         `asn1:"explicit,tag:0"`
+					Realm   string        `asn1:"explicit,tag:1"`
+					SName   PrincipalName `asn1:"explicit,tag:2"`
+					EncPart EncryptedData `asn1:"explicit,tag:3"`
+				}
+
+				_, err = asn1.Unmarshal(ticketOuterApp.Bytes, &ticket)
+				if err != nil {
+					return nil, fmt.Errorf("failed to unmarshal ticket content: %v", err)
+				}
+
+				tickets = append(tickets, Ticket{
+					TktVno:  ticket.TktVno,
+					Realm:   ticket.Realm,
+					SName:   ticket.SName,
+					EncPart: ticket.EncPart,
+				})
 			}
 			krbCred.Tickets = tickets
 
