@@ -73,6 +73,11 @@ type KrbTicket struct {
 	KrbCred        *KrbCred
 }
 
+type PrincipalName struct {
+	NameType   int32    `asn1:"tag:0,explicit"`
+	NameString []string `asn1:"tag:1,explicit"` // SEQUENCE OF is handled automatically for slices
+}
+
 type KrbCred struct {
 	Pvno    int32          `asn1:"tag:0,explicit"`
 	MsgType int32          `asn1:"tag:1,explicit"`
@@ -81,32 +86,28 @@ type KrbCred struct {
 }
 
 type EncKrbCredPart struct {
-	TicketInfo []KrbCredInfo `asn1:"tag:0,explicit,optional"`
-}
-
-type PrincipalName struct {
-	NameType   int32    `asn1:"tag:0,explicit"`
-	NameString []string `asn1:"tag:1,explicit"`
+	TicketInfo []KrbCredInfo `asn1:"explicit,tag:0"`
 }
 
 type Ticket struct {
-	TktVno  int32         `asn1:"application,tag:1,explicit,tag:0"`
+	TktVno  int32         `asn1:"tag:0,explicit"`
 	Realm   string        `asn1:"tag:1,explicit"`
 	SName   PrincipalName `asn1:"tag:2,explicit"`
 	EncPart EncryptedData `asn1:"tag:3,explicit"`
 }
 
 type KrbCredInfo struct {
-	Key       EncryptionKey  `asn1:"tag:0,explicit"`
-	PRealm    string         `asn1:"tag:1,explicit,optional"`
-	PName     PrincipalName  `asn1:"tag:2,explicit,optional"`
-	Flags     asn1.BitString `asn1:"tag:3,explicit,optional"`
-	AuthTime  time.Time      `asn1:"tag:4,explicit,optional,generalized"`
-	StartTime time.Time      `asn1:"tag:5,explicit,optional,generalized"`
-	EndTime   time.Time      `asn1:"tag:6,explicit,optional,generalized"`
-	RenewTill time.Time      `asn1:"tag:7,explicit,optional,generalized"`
-	SRealm    string         `asn1:"tag:8,explicit,optional"`
-	SName     PrincipalName  `asn1:"tag:9,explicit,optional"`
+	Key       EncryptionKey   `asn1:"tag:0,explicit"`
+	PRealm    *string         `asn1:"tag:1,explicit,optional"`
+	PName     *PrincipalName  `asn1:"tag:2,explicit,optional"`
+	Flags     *asn1.BitString `asn1:"tag:3,explicit,optional"`
+	AuthTime  *time.Time      `asn1:"tag:4,explicit,optional,generalized"`
+	StartTime *time.Time      `asn1:"tag:5,explicit,optional,generalized"`
+	EndTime   *time.Time      `asn1:"tag:6,explicit,optional,generalized"`
+	RenewTill *time.Time      `asn1:"tag:7,explicit,optional,generalized"`
+	SRealm    *string         `asn1:"tag:8,explicit,optional"`
+	SName     *PrincipalName  `asn1:"tag:9,explicit,optional"`
+	CAddr     []HostAddress   `asn1:"tag:10,explicit,optional"`
 }
 
 type EncryptionKey struct {
@@ -116,7 +117,7 @@ type EncryptionKey struct {
 
 type EncryptedData struct {
 	EType  int32  `asn1:"tag:0,explicit"`
-	KVNO   int32  `asn1:"tag:1,explicit,optional"`
+	KVNO   *int32 `asn1:"tag:1,explicit,optional"` // Using pointer for OPTIONAL
 	Cipher []byte `asn1:"tag:2,explicit"`
 }
 
@@ -323,13 +324,19 @@ asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[DEBUG] Parsing ASN.1 data of length %d\n", len(encodedTicket))
-	fmt.Printf("[+] ticket data:\n% X\n", encodedTicket)
+
 	var krbCred KrbCred
-	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
+	_, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
 	if err != nil {
-		fmt.Printf("[DEBUG] ASN.1 structure error at offset: %d\n", len(encodedTicket)-len(rest))
+		// Try to get more information about the error by examining the raw ASN.1
+		var raw asn1.RawValue
+		if _, err2 := asn1.Unmarshal(encodedTicket, &raw); err2 == nil {
+			fmt.Printf("[DEBUG] Raw ASN.1 - Class: %d, Tag: %d, IsCompound: %v, Length: %d\n",
+				raw.Class, raw.Tag, raw.IsCompound, len(raw.Bytes))
+		}
 		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
 	}
+
 	return &krbCred, nil
 }
 
