@@ -73,12 +73,8 @@ type KrbTicket struct {
 	KrbCred        *KrbCred
 }
 
-type KrbCredWrapper struct {
-	KrbCred `asn1:"application,tag:22"` // This matches Rubeus' outer SEQUENCE wrapper
-}
-
 type KrbCred struct {
-	Pvno    int32          `asn1:"tag:0,explicit"`
+	Pvno    int32          `asn1:"application,tag:22,explicit"`
 	MsgType int32          `asn1:"tag:1,explicit"`
 	Tickets []Ticket       `asn1:"tag:2,explicit"`
 	EncPart EncKrbCredPart `asn1:"tag:3,explicit,optional"`
@@ -331,26 +327,15 @@ func (t TicketFlags) String() string {
 asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
-	fmt.Printf("[*] Parsing ticket data (%d bytes)\n", len(encodedTicket))
-	fmt.Printf("[*] First 32 bytes: % X\n", encodedTicket[:32])
-	fmt.Printf("[*] Full ticket: % X\n", encodedTicket)
-
-	var wrapper KrbCredWrapper
-	rest, err := asn1.Unmarshal(encodedTicket, &wrapper)
+	cred := &KrbCred{}
+	rest, err := asn1.UnmarshalWithParams(encodedTicket, &cred, "application,tag:22")
 	if err != nil {
-		fmt.Printf("[-] Failed to decode outer wrapper: %v\n", err)
-		fmt.Printf("[-] Remaining bytes: %d\n", len(rest))
-		dumpASN1Structure(encodedTicket)
+		// Log the specific error and remaining bytes
+		fmt.Printf("Decode error: %v\n", err)
+		fmt.Printf("Remaining bytes: %X\n", rest)
 		return nil, fmt.Errorf("failed to unmarshal KRB-CRED wrapper: %v", err)
 	}
-
-	// For debugging
-	fmt.Printf("[+] Successfully parsed KRB-CRED\n")
-	fmt.Printf("    Version: %d\n", wrapper.Pvno)
-	fmt.Printf("    MsgType: %d\n", wrapper.MsgType)
-	fmt.Printf("    Number of tickets: %d\n", len(wrapper.Tickets))
-
-	return &wrapper.KrbCred, nil
+	return cred, nil
 }
 
 // Add ASN.1 structure dumping helper
