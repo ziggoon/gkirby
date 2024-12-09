@@ -74,7 +74,7 @@ type KrbTicket struct {
 }
 
 type KrbCred struct {
-	Pvno    int32          `asn1:"application,tag:22,explicit"`
+	Pvno    int32          `asn1:"tag:0,explicit"`
 	MsgType int32          `asn1:"tag:1,explicit"`
 	Tickets []Ticket       `asn1:"tag:2,explicit"`
 	EncPart EncKrbCredPart `asn1:"tag:3,explicit,optional"`
