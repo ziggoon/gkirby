@@ -76,7 +76,7 @@ type KrbTicket struct {
 type KrbCred struct {
 	Pvno    int32          `asn1:"tag:0,explicit"`
 	MsgType int32          `asn1:"tag:1,explicit"`
-	Tickets []Ticket       `asn1:"tag:2,explicit,set"`
+	Tickets []Ticket       `asn1:"tag:2,explicit"`
 	EncPart EncKrbCredPart `asn1:"tag:3,explicit,optional"`
 }
 
@@ -90,7 +90,7 @@ type PrincipalName struct {
 }
 
 type Ticket struct {
-	TktVno  int32         `asn1:"tag:0,explicit"`
+	TktVno  int32         `asn1:"application,tag:1,explicit,tag:0"`
 	Realm   string        `asn1:"tag:1,explicit"`
 	SName   PrincipalName `asn1:"tag:2,explicit"`
 	EncPart EncryptedData `asn1:"tag:3,explicit"`
@@ -322,9 +322,15 @@ func (t TicketFlags) String() string {
 asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
+	fmt.Printf("[DEBUG] Parsing ASN.1 data of length %d\n", len(encodedTicket))
 	fmt.Printf("[+] ticket data:\n% X\n", encodedTicket)
-
-	return nil, nil
+	var krbCred KrbCred
+	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
+	if err != nil {
+		fmt.Printf("[DEBUG] ASN.1 structure error at offset: %d\n", len(encodedTicket)-len(rest))
+		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
+	}
+	return &krbCred, nil
 }
 
 /*
