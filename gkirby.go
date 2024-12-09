@@ -324,17 +324,26 @@ asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[DEBUG] Parsing ASN.1 data of length %d\n", len(encodedTicket))
+	fmt.Printf("[DEBUG] First 32 bytes: % X\n", encodedTicket[:min(32, len(encodedTicket))])
 
+	// First try parsing just the raw value to see what we're dealing with
+	var raw asn1.RawValue
+	rest, err := asn1.Unmarshal(encodedTicket, &raw)
+	if err == nil {
+		fmt.Printf("[DEBUG] Raw ASN.1 - Class: %d, Tag: %d, IsCompound: %v, Length: %d\n",
+			raw.Class, raw.Tag, raw.IsCompound, len(raw.Bytes))
+	}
+
+	// Now try to parse the actual KrbCred
 	var krbCred KrbCred
-	_, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
+	rest, err = asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
 	if err != nil {
-		// Try to get more information about the error by examining the raw ASN.1
-		var raw asn1.RawValue
-		if _, err2 := asn1.Unmarshal(encodedTicket, &raw); err2 == nil {
-			fmt.Printf("[DEBUG] Raw ASN.1 - Class: %d, Tag: %d, IsCompound: %v, Length: %d\n",
-				raw.Class, raw.Tag, raw.IsCompound, len(raw.Bytes))
-		}
 		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
+	}
+
+	// Validate the parsed data
+	if krbCred.MsgType != 22 {
+		return nil, fmt.Errorf("unexpected message type: %d", krbCred.MsgType)
 	}
 
 	return &krbCred, nil
