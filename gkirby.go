@@ -76,7 +76,7 @@ type KrbTicket struct {
 type KrbCred struct {
 	Pvno    int            `asn1:"tag:0,explicit"`
 	MsgType int            `asn1:"tag:1,explicit"`
-	Tickets Tickets        `asn1:"tag:2,explicit,set"`
+	Tickets []Ticket       `asn1:"tag:2,explicit,set"`
 	EncPart EncKrbCredPart `asn1:"tag:3,explicit"`
 }
 
@@ -94,10 +94,6 @@ type Ticket struct {
 	Realm   string        `asn1:"tag:1,explicit"`
 	SName   PrincipalName `asn1:"tag:2,explicit"`
 	EncPart EncryptedData `asn1:"tag:3,explicit"`
-}
-
-type Tickets struct {
-	Tickets []Ticket `asn1:"sequence"`
 }
 
 type KrbCredInfo struct {
