@@ -73,6 +73,10 @@ type KrbTicket struct {
 	KrbCred        *KrbCred
 }
 
+type KrbCredWrapper struct {
+	Credential KrbCred `asn1:"sequence"` // This matches Rubeus' outer SEQUENCE wrapper
+}
+
 type KrbCred struct {
 	Pvno    int32          `asn1:"tag:0,explicit"`
 	MsgType int32          `asn1:"tag:1,explicit"`
@@ -330,40 +334,26 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[*] Parsing ticket data (%d bytes)\n", len(encodedTicket))
 	fmt.Printf("[*] First 32 bytes: % X\n", encodedTicket[:32])
 
-	var krbCred KrbCred
+	var wrapper KrbCredWrapper
 
-	// Try different parsing methods in order of likelihood
-	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
+	// First decode the outer APPLICATION 22 wrapper
+	_, err := asn1.UnmarshalWithParams(encodedTicket, &wrapper, "application,tag:22")
 	if err != nil {
-		fmt.Printf("[*] First attempt failed: %v\n", err)
-		rest, err = asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
-		if err != nil {
-			fmt.Printf("[*] Second attempt failed: %v\n", err)
-			// Try with constructed flag
-			rest, err = asn1.UnmarshalWithParams(encodedTicket, &krbCred, "constructed,application,tag:22")
-			if err != nil {
-				fmt.Printf("[-] All parsing attempts failed: %v\n", err)
-				// Add debug helper to print the ASN.1 structure
-				dumpASN1Structure(encodedTicket)
-				return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
-			}
-		}
+		fmt.Printf("[-] Failed to decode outer wrapper: %v\n", err)
+		dumpASN1Structure(encodedTicket)
+		return nil, fmt.Errorf("failed to unmarshal KRB-CRED wrapper: %v", err)
 	}
 
-	// Add detailed validation logging
+	// Return the inner credential
+	cred := wrapper.Credential
+
+	// Validation logging
 	fmt.Printf("[+] Successfully parsed KRB-CRED\n")
-	fmt.Printf("    Version: %d\n", krbCred.Pvno)
-	fmt.Printf("    MsgType: %d\n", krbCred.MsgType)
-	fmt.Printf("    Number of tickets: %d\n", len(krbCred.Tickets))
+	fmt.Printf("    Version: %d\n", cred.Pvno)
+	fmt.Printf("    MsgType: %d\n", cred.MsgType)
+	fmt.Printf("    Number of tickets: %d\n", len(cred.Tickets))
 
-	if len(rest) > 0 {
-		fmt.Printf("[*] Warning: %d remaining bytes\n", len(rest))
-		if len(rest) >= 16 {
-			fmt.Printf("[*] First 16 bytes of remainder: % X\n", rest[:16])
-		}
-	}
-
-	return &krbCred, nil
+	return &cred, nil
 }
 
 // Add ASN.1 structure dumping helper
