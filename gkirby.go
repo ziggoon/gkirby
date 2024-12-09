@@ -324,21 +324,41 @@ asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[DEBUG] Parsing ASN.1 data of length %d\n", len(encodedTicket))
-	fmt.Printf("[DEBUG] First 32 bytes: % X\n", encodedTicket[:min(32, len(encodedTicket))])
 
-	// First try parsing just the raw value to see what we're dealing with
-	var raw asn1.RawValue
-	_, err := asn1.Unmarshal(encodedTicket, &raw)
-	if err == nil {
-		fmt.Printf("[DEBUG] Raw ASN.1 - Class: %d, Tag: %d, IsCompound: %v, Length: %d\n",
-			raw.Class, raw.Tag, raw.IsCompound, len(raw.Bytes))
+	// First, parse just the outer APPLICATION structure
+	var outer asn1.RawValue
+	_, err := asn1.Unmarshal(encodedTicket, &outer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse outer structure: %v", err)
+	}
+	fmt.Printf("[DEBUG] Outer structure - Class: %d, Tag: %d, IsCompound: %v, Length: %d\n",
+		outer.Class, outer.Tag, outer.IsCompound, len(outer.Bytes))
+
+	if outer.Class != asn1.ClassApplication || outer.Tag != 22 {
+		return nil, fmt.Errorf("unexpected outer structure: class %d, tag %d", outer.Class, outer.Tag)
 	}
 
-	// Now try to parse the actual KrbCred
-	var krbCred KrbCred
-	_, err = asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
+	// Now parse the inner SEQUENCE
+	var inner asn1.RawValue
+	innerRest, err := asn1.Unmarshal(outer.Bytes, &inner)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
+		return nil, fmt.Errorf("failed to parse inner sequence: %v", err)
+	}
+	fmt.Printf("[DEBUG] Inner structure - Class: %d, Tag: %d, IsCompound: %v, Length: %d\n",
+		inner.Class, inner.Tag, inner.IsCompound, len(inner.Bytes))
+
+	if len(innerRest) > 0 {
+		fmt.Printf("[DEBUG] Warning: %d bytes left after inner sequence\n", len(innerRest))
+	}
+
+	// Now try to parse the actual KrbCred structure from the inner bytes
+	var krbCred KrbCred
+	_, err = asn1.Unmarshal(inner.Bytes, &krbCred)
+	if err != nil {
+		fmt.Printf("[DEBUG] Failed to parse KrbCred structure: %v\n", err)
+		// Dump the first few bytes of the inner content for debugging
+		fmt.Printf("[DEBUG] Inner bytes: % X\n", inner.Bytes[:min(32, len(inner.Bytes))])
+		return nil, fmt.Errorf("failed to parse KrbCred structure: %v", err)
 	}
 
 	// Validate the parsed data
@@ -346,7 +366,52 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 		return nil, fmt.Errorf("unexpected message type: %d", krbCred.MsgType)
 	}
 
+	fmt.Printf("[DEBUG] Successfully parsed KRB-CRED:\n")
+	fmt.Printf("  - Protocol Version: %d\n", krbCred.Pvno)
+	fmt.Printf("  - Message Type: %d\n", krbCred.MsgType)
+	fmt.Printf("  - Number of tickets: %d\n", len(krbCred.Tickets))
+
 	return &krbCred, nil
+}
+
+// Helper function for min
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// DumpASN1 helper function for detailed ASN.1 structure analysis
+func DumpASN1(data []byte, indent string) {
+	var raw asn1.RawValue
+	rest, err := asn1.Unmarshal(data, &raw)
+	if err != nil {
+		fmt.Printf("%sError: %v\n", indent, err)
+		return
+	}
+
+	fmt.Printf("%sClass: %d, Tag: %d, IsCompound: %v, Len: %d\n",
+		indent, raw.Class, raw.Tag, raw.IsCompound, len(raw.Bytes))
+
+	if raw.IsCompound {
+		remaining := raw.Bytes
+		for len(remaining) > 0 {
+			var innerRaw asn1.RawValue
+			var err error
+			remaining, err = asn1.Unmarshal(remaining, &innerRaw)
+			if err != nil {
+				fmt.Printf("%s  Error parsing compound: %v\n", indent, err)
+				break
+			}
+			DumpASN1(innerRaw.FullBytes, indent+"  ")
+		}
+	}
+
+	if len(rest) > 0 {
+		fmt.Printf("%sRemaining: %d bytes\n", indent, len(rest))
+		DumpASN1(rest, indent)
+	}
 }
 
 /*
