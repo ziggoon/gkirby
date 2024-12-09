@@ -74,7 +74,7 @@ type KrbTicket struct {
 }
 
 type KrbCred struct {
-	Pvno    int32          `asn1:"tag:0,explicit,application,tag:22"`
+	Pvno    int32          `asn1:"tag:0,explicit"`
 	MsgType int32          `asn1:"tag:1,explicit"`
 	Tickets []Ticket       `asn1:"tag:2,explicit,set"`
 	EncPart EncKrbCredPart `asn1:"tag:3,explicit"`
@@ -331,20 +331,27 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[*] First 32 bytes: % X\n", encodedTicket[:32])
 
 	var krbCred KrbCred
+
+	// The application tag (22) should be in the UnmarshalWithParams call, not in the struct
 	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
 	if err != nil {
-		// Try alternative parsing methods
-		_, err2 := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
-		if err2 != nil {
-			fmt.Printf("[-] Failed with explicit params: %v\n", err2)
-			// Try one more time with different params
-			_, err3 := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "tag:22")
-			if err3 != nil {
-				fmt.Printf("[-] Failed with simple tag: %v\n", err3)
+		// Try with explicit
+		rest, err = asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
+		if err != nil {
+			// Try one more fallback option
+			rest, err = asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22,explicit")
+			if err != nil {
+				fmt.Printf("[-] Failed to parse with all attempts: %v\n", err)
 				return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
 			}
 		}
 	}
+
+	// Validation logging
+	fmt.Printf("[+] Successfully parsed KRB-CRED\n")
+	fmt.Printf("    Version: %d\n", krbCred.Pvno)
+	fmt.Printf("    MsgType: %d\n", krbCred.MsgType)
+	fmt.Printf("    Number of tickets: %d\n", len(krbCred.Tickets))
 
 	if len(rest) > 0 {
 		fmt.Printf("[*] Warning: %d remaining bytes\n", len(rest))
@@ -352,12 +359,6 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 			fmt.Printf("[*] First 16 bytes of remainder: % X\n", rest[:16])
 		}
 	}
-
-	// Add validation prints
-	fmt.Printf("[+] Successfully parsed KRB-CRED\n")
-	fmt.Printf("    Version: %d\n", krbCred.Pvno)
-	fmt.Printf("    MsgType: %d\n", krbCred.MsgType)
-	fmt.Printf("    Number of tickets: %d\n", len(krbCred.Tickets))
 
 	return &krbCred, nil
 }
