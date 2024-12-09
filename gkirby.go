@@ -73,13 +73,25 @@ type KrbTicket struct {
 	KrbCred        *KrbCred
 }
 
+//	KRB-CRED::= [APPLICATION 22] SEQUENCE {
+//	   pvno[0] INTEGER(5),
+//	   msg-type[1] INTEGER(22),
+//	   tickets[2] SEQUENCE OF Ticket,
+//	   enc-part[3] EncryptedData -- EncKrbCredPart
+//	}
 type KrbCred struct {
-	Pvno    int
-	MsgType int
-	Tickets []Ticket
-	EncPart EncKrbCredPart
+	Pvno    int            `asn1:"explicit,tag:0"`
+	MsgType int            `asn1:"explicit,tag:1"`
+	Tickets []Ticket       `asn1:"explicit,tag:2"`
+	EncPart EncKrbCredPart `asn1:"explicit,tag:3"`
 }
 
+//	Ticket::= [APPLICATION 1] SEQUENCE {
+//	       tkt-vno[0] INTEGER(5),
+//	       realm[1] Realm,
+//	       sname[2] PrincipalName,
+//	       enc-part[3] EncryptedData -- EncTicketPart
+//	}
 type Ticket struct {
 	TktVno  int32         `asn1:"explicit,tag:0"`
 	Realm   string        `asn1:"explicit,tag:1"`
@@ -87,42 +99,77 @@ type Ticket struct {
 	EncPart EncryptedData `asn1:"explicit,tag:3"`
 }
 
-// PrincipalName matches the ASN.1 structure
-type PrincipalName struct {
-	NameType   int32
-	NameString []string
-}
-
+//	EncryptedData::= SEQUENCE {
+//	   etype[0] Int32 -- EncryptionType --,
+//	   kvno[1] UInt32 OPTIONAL,
+//	   cipher[2] OCTET STRING -- ciphertext
+//	}
 type EncryptedData struct {
-	EType  int32
-	KVNO   int32
-	Cipher []byte
+	EType  int32   `asn1:"explicit,tag:0"`
+	KVNO   *uint32 `asn1:"explicit,tag:1,optional"`
+	Cipher []byte  `asn1:"explicit,tag:2"`
 }
 
-// EncKrbCredPart structure
+//	PrincipalName::= SEQUENCE {
+//	       name-type[0] Int32,
+//	       name-string[1] SEQUENCE OF KerberosString
+//	}
+type PrincipalName struct {
+	NameType   int32    `asn1:"explicit,tag:0"`
+	NameString []string `asn1:"explicit,tag:1"`
+}
+
+//	EncKrbCredPart  ::= [APPLICATION 29] SEQUENCE {
+//	       ticket-info     [0] SEQUENCE OF KrbCredInfo,
+//	       nonce           [1] UInt32 OPTIONAL,
+//	       timestamp       [2] KerberosTime OPTIONAL,
+//	       usec            [3] Microseconds OPTIONAL,
+//	       s-address       [4] HostAddress OPTIONAL,
+//	       r-address       [5] HostAddress OPTIONAL
+//	}
 type EncKrbCredPart struct {
-	Raw        []byte
-	TicketInfo []KrbCredInfo
+	TicketInfo []KrbCredInfo `asn1:"explicit,tag:0"`
+	Nonce      *uint32       `asn1:"explicit,tag:1,optional"`
+	Timestamp  *time.Time    `asn1:"explicit,tag:2,optional"`
+	Usec       *time.Time    `asn1:"explicit,tag:3,optional"`
+	SrcAddress *string       `asn1:"explicit,tag:4,optional"`
+	DstAddress *string       `asn1:"explicit,tag:5,optional"`
 }
 
-// KrbCredInfo structure
+//	KrbCredInfo     ::= SEQUENCE {
+//	       key             [0] EncryptionKey,
+//	       prealm          [1] Realm OPTIONAL,
+//	       pname           [2] PrincipalName OPTIONAL,
+//	       flags           [3] TicketFlags OPTIONAL,
+//	       authtime        [4] KerberosTime OPTIONAL,
+//	       starttime       [5] KerberosTime OPTIONAL,
+//	       endtime         [6] KerberosTime OPTIONAL,
+//	       renew-till      [7] KerberosTime OPTIONAL,
+//	       srealm          [8] Realm OPTIONAL,
+//	       sname           [9] PrincipalName OPTIONAL,
+//	       caddr           [10] HostAddresses OPTIONAL
+//	}
 type KrbCredInfo struct {
-	Key       EncryptionKey
-	PRealm    *string
-	PName     *PrincipalName
-	Flags     *asn1.BitString
-	AuthTime  *time.Time
-	StartTime *time.Time
-	EndTime   *time.Time
-	RenewTill *time.Time
-	SRealm    *string
-	SName     *PrincipalName
-	CAddr     []HostAddress
+	Key       EncryptionKey  `asn1:"explicit,tag:0"`
+	PRealm    *string        `asn1:"explicit,tag:1,optional"`
+	PName     *PrincipalName `asn1:"explicit,tag:2,optional"`
+	Flags     *TicketFlags   `asn1:"explicit,tag:3,optional"`
+	AuthTime  *time.Time     `asn1:"explicit,tag:4,optional"`
+	StartTime *time.Time     `asn1:"explicit,tag:5,optional"`
+	EndTime   *time.Time     `asn1:"explicit,tag:6,optional"`
+	RenewTill *time.Time     `asn1:"explicit,tag:7,optional"`
+	SRealm    *string        `asn1:"explicit,tag:8,optional"`
+	SName     *PrincipalName `asn1:"explicit,tag:9,optional"`
+	CAddr     []HostAddress  `asn1:"explicit,tag:10,optional"`
 }
 
+//	EncryptionKey::= SEQUENCE {
+//	   keytype[0] Int32 -- actually encryption type --,
+//	   keyvalue[1] OCTET STRING
+//	}
 type EncryptionKey struct {
-	KeyType  int32
-	KeyValue []byte
+	KeyType  int32  `asn1:"explicit,tag:0"`
+	KeyValue []byte `asn1:"explicit,tag:1"`
 }
 
 type Elevation struct {
@@ -327,10 +374,17 @@ func (t TicketFlags) String() string {
 asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
-	// todo: parse
 	fmt.Printf("[+] raw bytes: % X\n", encodedTicket)
+	var krbCred *KrbCred
+	rest, err := asn1.Unmarshal(encodedTicket, &krbCred)
+	if err != nil {
+		return nil, err
+	}
+	if len(rest) != 0 {
+		fmt.Printf("[!] extra bytes: % X\n", rest)
+	}
 
-	return nil, nil
+	return krbCred, nil
 }
 
 func DumpASN1(data []byte, indent string) {
