@@ -332,30 +332,36 @@ asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	fmt.Printf("[*] Parsing ticket data (%d bytes)\n", len(encodedTicket))
-	fmt.Printf("[*] First 16 bytes: % X\n", encodedTicket[:16])
-	fmt.Printf("[*] Full ticket: % X\n", encodedTicket)
+	fmt.Printf("[*] First 32 bytes: % X\n", encodedTicket[:32])
 
 	var krbCred KrbCred
-	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
+	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
 	if err != nil {
-		fmt.Printf("[-] Failed to unmarshal KRB-CRED: %v\n", err)
-		// Try to unmarshal with different parameters for debugging
-		_, err2 := asn1.Unmarshal(encodedTicket, &krbCred)
+		// Try alternative parsing methods
+		_, err2 := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,explicit,tag:22")
 		if err2 != nil {
-			fmt.Printf("[-] Also failed without params: %v\n", err2)
+			fmt.Printf("[-] Failed with explicit params: %v\n", err2)
+			// Try one more time with different params
+			_, err3 := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "tag:22")
+			if err3 != nil {
+				fmt.Printf("[-] Failed with simple tag: %v\n", err3)
+				return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
+			}
 		}
-		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
 	}
 
 	if len(rest) > 0 {
-		fmt.Printf("[*] Warning: %d bytes remaining after KRB-CRED\n", len(rest))
-		fmt.Printf("[*] Remaining bytes: % X\n", rest)
+		fmt.Printf("[*] Warning: %d remaining bytes\n", len(rest))
+		if len(rest) >= 16 {
+			fmt.Printf("[*] First 16 bytes of remainder: % X\n", rest[:16])
+		}
 	}
 
-	fmt.Printf("[*] Successfully parsed KRB-CRED:\n")
+	// Add validation prints
+	fmt.Printf("[+] Successfully parsed KRB-CRED\n")
 	fmt.Printf("    Version: %d\n", krbCred.Pvno)
 	fmt.Printf("    MsgType: %d\n", krbCred.MsgType)
-	fmt.Printf("    Number of tickets: %d\n", len(krbCred.Tickets.Tickets))
+	fmt.Printf("    Number of tickets: %d\n", len(krbCred.Tickets))
 
 	return &krbCred, nil
 }
