@@ -74,14 +74,14 @@ type KrbTicket struct {
 }
 
 type KrbCred struct {
-	Pvno    int            `asn1:"tag:0,explicit"`
-	MsgType int            `asn1:"tag:1,explicit"`
+	Pvno    int32          `asn1:"tag:0,explicit,application,tag:22"`
+	MsgType int32          `asn1:"tag:1,explicit"`
 	Tickets []Ticket       `asn1:"tag:2,explicit,set"`
 	EncPart EncKrbCredPart `asn1:"tag:3,explicit"`
 }
 
 type EncKrbCredPart struct {
-	TicketInfo []KrbCredInfo `asn1:"tag:0,explicit"`
+	TicketInfo []KrbCredInfo `asn1:"tag:0,explicit,optional"`
 }
 
 type PrincipalName struct {
