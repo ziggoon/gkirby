@@ -19,7 +19,7 @@ const (
 
 // enums
 type LogonType uint32
-type TicketFlags uint32
+type TicketFlags int64
 type KerbProtocolMessageType uint32
 
 const (
@@ -106,7 +106,7 @@ type Ticket struct {
 //	}
 type EncryptedData struct {
 	EType  int32  `asn1:"explicit,tag:0"`
-	KVNO   uint32 `asn1:"explicit,tag:1,optional"`
+	KVNO   *int32 `asn1:"explicit,tag:1,optional"`
 	Cipher []byte `asn1:"explicit,tag:2"`
 }
 
@@ -153,7 +153,7 @@ type KrbCredInfo struct {
 	Key       EncryptionKey  `asn1:"explicit,tag:0"`
 	PRealm    *string        `asn1:"explicit,tag:1,optional"`
 	PName     *PrincipalName `asn1:"explicit,tag:2,optional"`
-	Flags     *TicketFlags   `asn1:"explicit,tag:3,optional"`
+	Flags     *int64         `asn1:"explicit,tag:3,optional"`
 	AuthTime  *time.Time     `asn1:"explicit,tag:4,optional"`
 	StartTime *time.Time     `asn1:"explicit,tag:5,optional"`
 	EndTime   *time.Time     `asn1:"explicit,tag:6,optional"`
