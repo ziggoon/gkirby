@@ -740,7 +740,6 @@ func DisplayMapTickets(tickets []map[string]interface{}, format TicketDisplayFor
 				opts := DefaultDisplayOptions()
 				opts.DisplayB64Ticket = true
 				err := DisplayTicket(krbCred, opts)
-				fmt.Printf("[!] KRB CRED: %+v", krbCred)
 				if err != nil {
 					fmt.Printf("Error displaying KRB_CRED: %v\n", err)
 				}
