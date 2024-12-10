@@ -12,27 +12,20 @@ import (
 )
 
 func GetLsaHandle() (windows.Handle, error) {
-	fmt.Printf("[*] Getting LSA handle\n")
 	isHighIntegrity, err := helpers.IsHighIntegrity()
 	if err != nil {
-		fmt.Printf("[-] Failed to check integrity level: %v\n", err)
 		return 0, err
 	}
 
-	fmt.Printf("[*] Is high integrity: %v\n", isHighIntegrity)
-
 	isSystem, err := helpers.IsSystem()
 	if err != nil {
-		fmt.Printf("[-] Failed to check SYSTEM status: %v\n", err)
 		return 0, err
 	}
 
 	var lsaHandle windows.Handle
 	if isHighIntegrity && !isSystem {
-		fmt.Printf("[*] High integrity but not SYSTEM, attempting privilege escalation\n")
 		gotSystem := helpers.GetSystem()
 		if !gotSystem {
-			fmt.Printf("[-] Failed to get SYSTEM privileges\n")
 			return 0, fmt.Errorf("failed to get SYSTEM privileges")
 		}
 	}
@@ -41,11 +34,9 @@ func GetLsaHandle() (windows.Handle, error) {
 		uintptr(unsafe.Pointer(&lsaHandle)),
 	)
 	if ret != 0 {
-		fmt.Printf("[-] LsaConnectUntrusted failed: %v\n", err)
 		return lsaHandle, fmt.Errorf("LsaConnectUntrusted failed: %v", err)
 	}
 
-	fmt.Printf("[+] Successfully obtained LSA handle\n")
 	return lsaHandle, nil
 }
 

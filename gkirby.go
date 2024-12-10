@@ -13,6 +13,8 @@ import (
 /*
 * public bois
  */
+
+// return a map of kerberos tickets
 func GetKerberosTickets() []map[string]interface{} {
 	var ticketCache []map[string]interface{}
 
