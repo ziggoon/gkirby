@@ -106,7 +106,7 @@ type Ticket struct {
 //	}
 type EncryptedData struct {
 	EType  int32  `asn1:"explicit,tag:0"`
-	KVNO   *int32 `asn1:"explicit,tag:1,optional"`
+	KVNO   int32  `asn1:"explicit,tag:1,optional"`
 	Cipher []byte `asn1:"explicit,tag:2"`
 }
 
