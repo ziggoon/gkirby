@@ -760,6 +760,121 @@ func displayTicket(krbCred *KrbCred) {
 	fmt.Printf("      Ticket[0] - Ticket Length   : %d\n\n", len(krbCred.Tickets[0].EncPart.Cipher))
 }
 
+func DisplayMapTickets(tickets []map[string]interface{}, format TicketDisplayFormat) {
+	if format == Triage {
+		// Print header for triage format
+		fmt.Printf("LUID\tUserName\tService\tEndTime\n")
+		fmt.Printf("----\t--------\t-------\t-------\n")
+
+		for _, ticket := range tickets {
+			// Safely access map values with type assertions
+			logonId, _ := ticket["logonId"].(int64)
+			username, _ := ticket["username"].(string)
+			domain, _ := ticket["domain"].(string)
+			serverName, _ := ticket["serverName"].(string)
+			endTime, _ := ticket["endTime"].(string)
+
+			// Parse the endTime string back to time.Time
+			parsedEndTime, err := time.Parse(time.RFC3339, endTime)
+			if err != nil {
+				parsedEndTime = time.Time{}
+			}
+
+			fmt.Printf("0x%x\t%s@%s\t%s\t%s\n",
+				logonId,
+				username,
+				domain,
+				serverName,
+				parsedEndTime.Format("2006-01-02 15:04:05"),
+			)
+		}
+
+	} else if format == Klist {
+		var currentUser string
+		var currentDomain string
+
+		for _, ticket := range tickets {
+			username, _ := ticket["username"].(string)
+			domain, _ := ticket["domain"].(string)
+
+			// Only print user info when it changes
+			if username != currentUser || domain != currentDomain {
+				currentUser = username
+				currentDomain = domain
+
+				fmt.Printf("\nClient: %s @ %s\n", username, domain)
+				fmt.Printf("  [Session cache]\n")
+			}
+
+			serverName, _ := ticket["serverName"].(string)
+			serverRealm, _ := ticket["serverRealm"].(string)
+			startTime, _ := ticket["startTime"].(string)
+			endTime, _ := ticket["endTime"].(string)
+			renewTime, _ := ticket["renewTime"].(string)
+			flags, _ := ticket["flags"].(string)
+			encType, _ := ticket["encType"].(int32)
+
+			// Parse times
+			parsedStartTime, _ := time.Parse(time.RFC3339, startTime)
+			parsedEndTime, _ := time.Parse(time.RFC3339, endTime)
+			parsedRenewTime, _ := time.Parse(time.RFC3339, renewTime)
+
+			fmt.Printf("\n    Server: %s @ %s\n", serverName, serverRealm)
+			fmt.Printf("    Encryption Type: 0x%x\n", encType)
+			fmt.Printf("    Start Time: %s\n", parsedStartTime.Format("2006-01-02 15:04:05"))
+			fmt.Printf("    End Time: %s\n", parsedEndTime.Format("2006-01-02 15:04:05"))
+			fmt.Printf("    Renew Time: %s\n", parsedRenewTime.Format("2006-01-02 15:04:05"))
+			fmt.Printf("    Flags: %s\n", flags)
+		}
+
+	} else if format == Full {
+		for _, ticket := range tickets {
+			username, _ := ticket["username"].(string)
+			domain, _ := ticket["domain"].(string)
+			logonId, _ := ticket["logonId"].(int64)
+			serverName, _ := ticket["serverName"].(string)
+			serverRealm, _ := ticket["serverRealm"].(string)
+			startTime, _ := ticket["startTime"].(string)
+			endTime, _ := ticket["endTime"].(string)
+			renewTime, _ := ticket["renewTime"].(string)
+			flags, _ := ticket["flags"].(string)
+			encType, _ := ticket["encType"].(int32)
+
+			// Parse times
+			parsedStartTime, _ := time.Parse(time.RFC3339, startTime)
+			parsedEndTime, _ := time.Parse(time.RFC3339, endTime)
+			parsedRenewTime, _ := time.Parse(time.RFC3339, renewTime)
+
+			fmt.Printf("\nLogon Session Details:\n")
+			fmt.Printf("  Username: %s\n", username)
+			fmt.Printf("  Domain: %s\n", domain)
+			fmt.Printf("  LogonID: 0x%x\n", logonId)
+
+			fmt.Printf("\nTicket Details:\n")
+			fmt.Printf("  Server Name: %s\n", serverName)
+			fmt.Printf("  Server Realm: %s\n", serverRealm)
+			fmt.Printf("  Start Time: %s\n", parsedStartTime.Format("2006-01-02 15:04:05"))
+			fmt.Printf("  End Time: %s\n", parsedEndTime.Format("2006-01-02 15:04:05"))
+			fmt.Printf("  Renew Time: %s\n", parsedRenewTime.Format("2006-01-02 15:04:05"))
+			fmt.Printf("  Flags: %s\n", flags)
+			fmt.Printf("  Encryption Type: 0x%x\n", encType)
+
+			// If you need to display the KRB_CRED data, you'll need to handle it separately
+			if krbCred, ok := ticket["krbCred"].(*KrbCred); ok {
+				fmt.Printf("\nKRB_CRED Details:\n")
+				opts := DefaultDisplayOptions()
+				opts.DisplayB64Ticket = true
+				err := DisplayTicket(krbCred, opts)
+				if err != nil {
+					fmt.Printf("Error displaying KRB_CRED: %v\n", err)
+				}
+			}
+
+			fmt.Printf("\n")
+		}
+	}
+}
+
 /*
 kerberos helper funcs
 */
@@ -1341,7 +1456,7 @@ func GetKerberosTickets() []map[string]interface{} {
 
 	if len(ticketCache) > 0 {
 		fmt.Printf("[+] Successfully collected %d Kerberos tickets\n", len(ticketCache))
-		displayTickets(sessionCreds, Full, true)
+		DisplayMapTickets(ticketCache, Full)
 		return ticketCache
 	}
 
