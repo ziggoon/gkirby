@@ -133,7 +133,6 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 			response := (*types.KerbQueryTktCacheResponse)(unsafe.Pointer(responsePtr))
 
 			if response.CountOfTickets > 0 {
-				fmt.Printf("[*] Found %d tickets in cache for session\n", response.CountOfTickets)
 				ticketSize := unsafe.Sizeof(types.KerbTicketCacheInfoEx{})
 
 				for i := uint32(0); i < response.CountOfTickets; i++ {
@@ -261,7 +260,6 @@ func enumerateLogonSessions() ([]windows.LUID, error) {
 	for i := uint32(0); i < count; i++ {
 		luid := (*windows.LUID)(unsafe.Pointer(luids + uintptr(i)*unsafe.Sizeof(windows.LUID{})))
 		luidSlice[i] = *luid
-		fmt.Printf("[+] Found session LUID: 0x%x:0x%x\n", luid.HighPart, luid.LowPart)
 	}
 
 	defer dll.LsaFreeReturnBuffer.Call(luids)

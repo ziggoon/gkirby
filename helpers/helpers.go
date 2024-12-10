@@ -78,6 +78,8 @@ func GetSystem() bool {
 					false,
 					procEntry.ProcessID,
 				)
+				defer windows.CloseHandle(handle)
+
 				if err != nil {
 					return false
 				}
@@ -90,13 +92,15 @@ func GetSystem() bool {
 				defer token.Close()
 
 				var duplicateToken windows.Token
-				err = windows.DuplicateTokenEx(token, windows.TOKEN_ALL_ACCESS, nil, windows.SecurityImpersonation, windows.TokenPrimary, &duplicateToken)
-				if err != nil {
+				ret, _, err := dll.DuplicateToken.Call(uintptr(token), uintptr(2), uintptr(unsafe.Pointer(&duplicateToken)))
+				if ret == 0 {
+					fmt.Println("DuplicateToken failed:", err)
 					return false
 				}
+				defer duplicateToken.Close()
 
-				ret, _, err := dll.ImpersonateLoggedOnUser.Call(uintptr(token))
-				if ret != 0 {
+				ret, _, err = dll.ImpersonateLoggedOnUser.Call(uintptr(token))
+				if ret == 0 {
 					return false
 				}
 
