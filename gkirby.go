@@ -5,6 +5,7 @@ package gkirby
 
 import (
 	"encoding/asn1"
+	"encoding/base64"
 	"fmt"
 	"golang.org/x/sys/windows"
 	"os"
@@ -312,6 +313,21 @@ type KerbCryptoKey struct {
 	Value   uintptr
 }
 
+type DisplayOptions struct {
+	IndentLevel           int
+	DisplayTGT            bool
+	DisplayB64Ticket      bool
+	ExtractKerberoastHash bool
+	NoWrap                bool
+	ServiceKey            []byte
+	AsrepKey              []byte
+	ServiceUser           string
+	ServiceDomain         string
+	KrbKey                []byte
+	KeyList               []byte
+	DesPlainText          string
+}
+
 // dll imports
 var (
 	secur32                        = windows.NewLazyDLL("secur32.dll")
@@ -495,6 +511,147 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	}
 
 	return krbCred, nil
+}
+
+func DefaultDisplayOptions() *DisplayOptions {
+	return &DisplayOptions{
+		IndentLevel:           2,
+		DisplayTGT:            false,
+		DisplayB64Ticket:      false,
+		ExtractKerberoastHash: true,
+		NoWrap:                false,
+	}
+}
+
+func (k *KrbCred) EncodeToBase64() (string, error) {
+	data, err := asn1.Marshal(*k)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling KrbCred: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(data), nil
+}
+
+func DisplayTicket(cred *KrbCred, opts *DisplayOptions) error {
+	if opts == nil {
+		opts = DefaultDisplayOptions()
+	}
+
+	indent := strings.Repeat(" ", opts.IndentLevel)
+
+	// Get primary ticket info from KrbCred
+	if len(cred.Tickets) == 0 {
+		return fmt.Errorf("no tickets found in KrbCred")
+	}
+
+	// Get ticket info from first ticket
+	ticket := cred.Tickets[0]
+
+	// Use PrincipalName from the ticket's SName
+	serviceName := strings.Join(ticket.SName.NameString, "/")
+	shortServiceName := strings.Split(serviceName, "/")[0]
+
+	// Encode ticket to base64
+	base64ticket, err := cred.EncodeToBase64()
+	if err != nil {
+		return fmt.Errorf("error encoding ticket: %v", err)
+	}
+
+	if opts.DisplayTGT {
+		// Abbreviated display for TGT monitoring
+		if ticket.Realm != "" {
+			fmt.Printf("%sRealm                 :  %s\n", indent, ticket.Realm)
+		}
+		fmt.Printf("%sServiceName            :  %s\n", indent, serviceName)
+		fmt.Printf("%sEncryptionType         :  %d\n", indent, ticket.EncPart.EType)
+		if ticket.EncPart.KVNO != 0 {
+			fmt.Printf("%sKeyVersion            :  %d\n", indent, ticket.EncPart.KVNO)
+		}
+		fmt.Printf("%sBase64EncodedTicket    :\n\n", indent)
+
+		// Handle ticket wrapping
+		if !opts.NoWrap {
+			// Split base64ticket into chunks of 100 chars
+			const chunkSize = 100
+			for i := 0; i < len(base64ticket); i += chunkSize {
+				end := i + chunkSize
+				if end > len(base64ticket) {
+					end = len(base64ticket)
+				}
+				fmt.Printf("%s  %s\n", indent, base64ticket[i:end])
+			}
+		} else {
+			fmt.Printf("%s  %s\n", indent, base64ticket)
+		}
+	} else {
+		// Full display
+		fmt.Printf("\n%sServiceName              :  %s\n", indent, serviceName)
+		fmt.Printf("%sServiceRealm             :  %s\n", indent, ticket.Realm)
+		fmt.Printf("%sTicketEncryptionType     :  %d\n", indent, ticket.EncPart.EType)
+		fmt.Printf("%sTicketKvno               :  %d\n", indent, ticket.EncPart.KVNO)
+
+		// Handle KeyList if provided
+		if opts.KeyList != nil {
+			fmt.Printf("%sPassword Hash            :  %X\n", indent, opts.KeyList)
+		}
+
+		// Handle ASREP key if provided
+		if opts.AsrepKey != nil {
+			fmt.Printf("%sASREP (key)              :  %X\n", indent, opts.AsrepKey)
+		}
+
+		// Display RODC number if present
+		if ticket.EncPart.KVNO > 65535 {
+			rodcNum := ticket.EncPart.KVNO >> 16
+			fmt.Printf("%sRODC Number              :  %d\n", indent, rodcNum)
+		}
+
+		// Handle base64 ticket display if requested
+		if opts.DisplayB64Ticket {
+			fmt.Printf("%sBase64EncodedTicket      :\n\n", indent)
+			if !opts.NoWrap {
+				const chunkSize = 100
+				for i := 0; i < len(base64ticket); i += chunkSize {
+					end := i + chunkSize
+					if end > len(base64ticket) {
+						end = len(base64ticket)
+					}
+					fmt.Printf("%s  %s\n", indent, base64ticket[i:end])
+				}
+			} else {
+				fmt.Printf("%s  %s\n", indent, base64ticket)
+			}
+		}
+
+		// Handle Kerberoasting if requested
+		if opts.ExtractKerberoastHash && shortServiceName != "krbtgt" {
+			fmt.Printf("\n%s[*] Kerberoasting functionality not yet implemented\n", indent)
+		}
+	}
+
+	// Handle service key decryption if provided
+	if opts.ServiceKey != nil {
+		fmt.Printf("\n%s[*] PAC decryption functionality not yet implemented\n", indent)
+	}
+
+	fmt.Println()
+	return nil
+}
+
+func SplitString(s string, chunkSize int) []string {
+	var chunks []string
+	if chunkSize <= 0 {
+		return chunks
+	}
+
+	runes := []rune(s)
+	for i := 0; i < len(runes); i += chunkSize {
+		end := i + chunkSize
+		if end > len(runes) {
+			end = len(runes)
+		}
+		chunks = append(chunks, string(runes[i:end]))
+	}
+	return chunks
 }
 
 func formatFlags(flags TicketFlags) string {
