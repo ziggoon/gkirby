@@ -95,7 +95,7 @@ type KrbCred struct {
 //	}
 type Ticket struct {
 	TktVno  int32         `asn1:"explicit,tag:0"`
-	Realm   string        `asn1:"explicit,tag:1"`
+	Realm   string        `asn1:"explicit,tag:1,ia5"`
 	SName   PrincipalName `asn1:"explicit,tag:2"`
 	EncPart EncryptedData `asn1:"explicit,tag:3"`
 }
@@ -117,7 +117,7 @@ type EncryptedData struct {
 //	}
 type PrincipalName struct {
 	NameType   int32    `asn1:"explicit,tag:0"`
-	NameString []string `asn1:"explicit,tag:1"`
+	NameString []string `asn1:"explicit,tag:1,ia5"`
 }
 
 //	EncKrbCredPart  ::= [APPLICATION 29] SEQUENCE {
@@ -353,104 +353,44 @@ const (
 )
 
 func parseTicketData(ticketData []byte) (*KrbCred, error) {
-	// Debug: Print the first few bytes of the ticket data
 	fmt.Printf("[*] Parsing ticket data of length: %d bytes\n", len(ticketData))
-	if len(ticketData) > 16 {
-		fmt.Printf("[*] First 16 bytes: % X\n", ticketData[:16])
-	}
 
-	// Try parsing without application tag first to see raw ASN.1 structure
-	var rawValue asn1.RawValue
-	rest, err := asn1.Unmarshal(ticketData, &rawValue)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal raw value: %v", err)
-	}
-	fmt.Printf("[*] Initial ASN.1 tag: %d, class: %d, isCompound: %v\n",
-		rawValue.Tag, rawValue.Class, rawValue.IsCompound)
-
-	// Create a new KrbCred struct to hold the parsed data
+	// The KRB-CRED structure is an APPLICATION 22
 	var krbCred KrbCred
-
-	// First try without explicit application tag
-	_, err = asn1.Unmarshal(ticketData, &krbCred)
+	_, err := asn1.UnmarshalWithParams(ticketData, &krbCred, "application,explicit,tag:22")
 	if err != nil {
-		fmt.Printf("[*] Standard unmarshal failed, trying with application tag: %v\n", err)
-		// Try with application tag
-		rest, err = asn1.UnmarshalWithParams(ticketData, &krbCred, "application,tag:22")
+		// If explicit tag fails, try implicit
+		_, err = asn1.UnmarshalWithParams(ticketData, &krbCred, "application,implicit,tag:22")
 		if err != nil {
-			// If that fails, try to parse the components individually to identify the issue
-			fmt.Printf("[*] Application tag unmarshal failed: %v\n", err)
-
-			// Try parsing just the sequence
-			var seq asn1.RawValue
-			_, err = asn1.Unmarshal(ticketData, &seq)
-			if err != nil {
-				return nil, fmt.Errorf("failed to unmarshal sequence: %v", err)
-			}
-
-			// Debug print the structure
-			fmt.Printf("[*] Sequence content length: %d\n", len(seq.Bytes))
-			if len(seq.Bytes) > 0 {
-				fmt.Printf("[*] First few bytes of sequence: % X\n", seq.Bytes[:min(16, len(seq.Bytes))])
-			}
-
 			return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
 		}
 	}
 
-	fmt.Printf("[*] Successfully parsed basic KRB-CRED structure\n")
-	fmt.Printf("[*] Protocol Version: %d\n", krbCred.Pvno)
-	fmt.Printf("[*] Message Type: %d\n", krbCred.MsgType)
-	fmt.Printf("[*] Number of tickets: %d\n", len(krbCred.Tickets))
-
-	// Verify there's no trailing data
-	if len(rest) > 0 {
-		fmt.Printf("[*] Warning: %d bytes of trailing data\n", len(rest))
-	}
-
-	// Basic validation of the KRB-CRED structure
+	// Basic validation
 	if krbCred.Pvno != 5 {
-		return nil, fmt.Errorf("invalid protocol version number: %d", krbCred.Pvno)
+		return nil, fmt.Errorf("invalid protocol version: %d", krbCred.Pvno)
 	}
 
 	if krbCred.MsgType != 22 {
 		return nil, fmt.Errorf("invalid message type: %d", krbCred.MsgType)
 	}
 
-	// Validate tickets array
-	if len(krbCred.Tickets) == 0 {
-		return nil, fmt.Errorf("no tickets found in KRB-CRED")
-	}
+	// Log successful parse details
+	fmt.Printf("[+] Successfully parsed KRB-CRED structure:\n")
+	fmt.Printf("    Protocol Version: %d\n", krbCred.Pvno)
+	fmt.Printf("    Message Type: %d\n", krbCred.MsgType)
+	fmt.Printf("    Number of tickets: %d\n", len(krbCred.Tickets))
 
-	// Validate each ticket in the structure
+	// Validate and log ticket details
 	for i, ticket := range krbCred.Tickets {
-		fmt.Printf("[*] Validating ticket %d\n", i)
-		fmt.Printf("    - Ticket version: %d\n", ticket.TktVno)
-		fmt.Printf("    - Realm: %s\n", ticket.Realm)
-		fmt.Printf("    - Service name type: %d\n", ticket.SName.NameType)
-		fmt.Printf("    - Service name strings: %v\n", ticket.SName.NameString)
-		fmt.Printf("    - Encryption type: %d\n", ticket.EncPart.EType)
-		fmt.Printf("    - Encrypted data length: %d\n", len(ticket.EncPart.Cipher))
-
-		// Validate ticket version
-		if ticket.TktVno != 5 {
-			return nil, fmt.Errorf("invalid ticket version in ticket %d: %d", i, ticket.TktVno)
+		fmt.Printf("[+] Ticket %d details:\n", i)
+		fmt.Printf("    Version: %d\n", ticket.TktVno)
+		fmt.Printf("    Realm: %s\n", ticket.Realm)
+		if len(ticket.SName.NameString) > 0 {
+			fmt.Printf("    Service Name: %s\n", strings.Join(ticket.SName.NameString, "/"))
 		}
-
-		// Validate realm
-		if ticket.Realm == "" {
-			return nil, fmt.Errorf("empty realm in ticket %d", i)
-		}
-
-		// Validate SName
-		if len(ticket.SName.NameString) == 0 {
-			return nil, fmt.Errorf("empty service name in ticket %d", i)
-		}
-
-		// Validate EncPart
-		if len(ticket.EncPart.Cipher) == 0 {
-			return nil, fmt.Errorf("empty encrypted part in ticket %d", i)
-		}
+		fmt.Printf("    Encryption Type: %d\n", ticket.EncPart.EType)
+		fmt.Printf("    Encrypted Data Length: %d bytes\n", len(ticket.EncPart.Cipher))
 	}
 
 	return &krbCred, nil
