@@ -7,7 +7,9 @@ import (
 	"encoding/asn1"
 	"fmt"
 	"golang.org/x/sys/windows"
+	"os"
 	"strings"
+	"text/tabwriter"
 	"time"
 	"unsafe"
 )
@@ -328,6 +330,14 @@ const (
 	windowsToUnixEpochIntervals = 116444736000000000
 )
 
+type TicketDisplayFormat int
+
+const (
+	Triage TicketDisplayFormat = iota
+	Klist
+	Full
+)
+
 /*
 misc helper funcs
 */
@@ -487,147 +497,110 @@ func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
 	return krbCred, nil
 }
 
-func DetailedDumpASN1(data []byte, indent string) {
-	var raw asn1.RawValue
-	rest, err := asn1.Unmarshal(data, &raw)
-	if err != nil {
-		fmt.Printf("%sError: %v\n", indent, err)
-		return
-	}
+func formatFlags(flags TicketFlags) string {
+	return fmt.Sprintf("%s (0x%x)", flags.String(), uint32(flags))
+}
 
-	fmt.Printf("%sClass: %d, Tag: %d, IsCompound: %v, Len: %d\n",
-		indent, raw.Class, raw.Tag, raw.IsCompound, len(raw.Bytes))
-	fmt.Printf("%sRaw Bytes: % X\n", indent, raw.FullBytes[:20]) // Print first 20 bytes
-	fmt.Printf("%sContent Bytes: % X\n", indent, raw.Bytes[:20]) // Print first 20 bytes of content
+// DisplayTickets displays the provided session credentials in the specified format
+func displayTickets(sessionCreds []SessionCred, displayFormat TicketDisplayFormat, showAll bool) {
+	if displayFormat == Triage {
+		// Initialize tabwriter for aligned column output
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "LUID\tUserName\tService\tEndTime\t")
+		fmt.Fprintln(w, "----\t--------\t-------\t-------\t")
 
-	if raw.IsCompound {
-		remaining := raw.Bytes
-		for len(remaining) > 0 {
-			var innerRaw asn1.RawValue
-			var err error
-			remaining, err = asn1.Unmarshal(remaining, &innerRaw)
-			if err != nil {
-				fmt.Printf("%s  Error parsing compound: %v\n", indent, err)
-				break
+		for _, sessionCred := range sessionCreds {
+			// Skip empty sessions unless showAll is true
+			if len(sessionCred.Tickets) == 0 && !showAll {
+				continue
 			}
-			DetailedDumpASN1(innerRaw.FullBytes, indent+"  ")
-		}
-	}
 
-	if len(rest) > 0 {
-		fmt.Printf("%sRemaining: %d bytes\n", indent, len(rest))
-		DetailedDumpASN1(rest, indent)
-	}
-}
-
-func debugParseASN1(data []byte) error {
-	var outer asn1.RawValue
-	_, err := asn1.Unmarshal(data, &outer)
-	if err != nil {
-		return fmt.Errorf("outer unmarshal failed: %v", err)
-	}
-	fmt.Printf("Outer: Class=%d, Tag=%d, IsCompound=%v, Len=%d\n",
-		outer.Class, outer.Tag, outer.IsCompound, len(outer.Bytes))
-
-	// Try to parse the sequence inside the APPLICATION
-	var seq asn1.RawValue
-	_, err = asn1.Unmarshal(outer.Bytes, &seq)
-	if err != nil {
-		return fmt.Errorf("sequence unmarshal failed: %v", err)
-	}
-	fmt.Printf("Sequence: Class=%d, Tag=%d, IsCompound=%v, Len=%d\n",
-		seq.Class, seq.Tag, seq.IsCompound, len(seq.Bytes))
-
-	// Try each field
-	contents := seq.Bytes
-	for i := 0; i < 4; i++ { // We expect 4 fields (pvno, msgtype, tickets, encpart)
-		var field asn1.RawValue
-		var err error
-		contents, err = asn1.Unmarshal(contents, &field)
-		if err != nil {
-			return fmt.Errorf("field %d unmarshal failed: %v", i, err)
-		}
-		fmt.Printf("Field %d: Class=%d, Tag=%d, IsCompound=%v, Len=%d\n",
-			i, field.Class, field.Tag, field.IsCompound, len(field.Bytes))
-	}
-
-	return nil
-}
-
-func parseLengthBytes(data []byte) (length int, bytesUsed int) {
-	if len(data) == 0 {
-		return 0, 0
-	}
-
-	// Short form
-	if data[0] < 0x80 {
-		return int(data[0]), 1
-	}
-
-	// Long form
-	numBytes := int(data[0] & 0x7f)
-	if numBytes == 0 || numBytes > len(data)-1 {
-		return 0, 0
-	}
-
-	length = 0
-	for i := 0; i < numBytes; i++ {
-		length = length<<8 | int(data[i+1])
-	}
-
-	return length, numBytes + 1
-}
-
-func parseKrbCredRaw(data []byte) error {
-	if len(data) < 2 {
-		return fmt.Errorf("data too short")
-	}
-
-	// Try to identify APPLICATION tag
-	if data[0] != 0x76 { // APPLICATION 22 should be 0x76
-		return fmt.Errorf("expected APPLICATION 22 tag (0x76), got %02x", data[0])
-	}
-
-	// Get length of APPLICATION content
-	length, lenBytes := parseLengthBytes(data[1:])
-	offset := 1 + lenBytes
-
-	fmt.Printf("APPLICATION 22 content length: %d\n", length)
-	fmt.Printf("First few bytes of content: % X\n", data[offset:offset+20])
-	fmt.Printf("Full bytes: % X\n", data)
-
-	return nil
-}
-
-func DumpASN1(data []byte, indent string) {
-	var raw asn1.RawValue
-	rest, err := asn1.Unmarshal(data, &raw)
-	if err != nil {
-		fmt.Printf("%sError: %v\n", indent, err)
-		return
-	}
-
-	fmt.Printf("%sClass: %d, Tag: %d, IsCompound: %v, Len: %d\n",
-		indent, raw.Class, raw.Tag, raw.IsCompound, len(raw.Bytes))
-
-	if raw.IsCompound {
-		remaining := raw.Bytes
-		for len(remaining) > 0 {
-			var innerRaw asn1.RawValue
-			var err error
-			remaining, err = asn1.Unmarshal(remaining, &innerRaw)
-			if err != nil {
-				fmt.Printf("%s  Error parsing compound: %v\n", indent, err)
-				break
+			for _, ticket := range sessionCred.Tickets {
+				luid := fmt.Sprintf("0x%x", sessionCred.LogonSession.LogonID.LowPart)
+				userName := fmt.Sprintf("%s @ %s", ticket.ClientName, ticket.ClientRealm)
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t\n",
+					luid,
+					userName,
+					ticket.ServerName,
+					ticket.EndTime.Format("2006-01-02 15:04:05"),
+				)
 			}
-			DumpASN1(innerRaw.FullBytes, indent+"  ")
+		}
+		w.Flush()
+
+	} else if displayFormat == Klist {
+		for _, sessionCred := range sessionCreds {
+			if len(sessionCred.Tickets) == 0 && !showAll {
+				continue
+			}
+
+			// Print session information
+			fmt.Printf("UserName                 : %s\n", sessionCred.LogonSession.Username)
+			fmt.Printf("Domain                   : %s\n", sessionCred.LogonSession.LogonDomain)
+			fmt.Printf("LogonId                  : 0x%x\n", sessionCred.LogonSession.LogonID.LowPart)
+			if sessionCred.LogonSession.Sid != nil {
+				fmt.Printf("UserSID                  : %s\n", sessionCred.LogonSession.Sid.String())
+			}
+			fmt.Printf("AuthenticationPackage    : %s\n", sessionCred.LogonSession.AuthenticationPackage)
+			fmt.Printf("LogonType                : %s\n", sessionCred.LogonSession.LogonType)
+			fmt.Printf("LogonTime                : %s\n", sessionCred.LogonSession.LogonTime.Format("2006-01-02 15:04:05"))
+			fmt.Printf("LogonServer              : %s\n", sessionCred.LogonSession.LogonServer)
+			fmt.Printf("LogonServerDNSDomain     : %s\n", sessionCred.LogonSession.DnsDomainName)
+			fmt.Printf("UserPrincipalName        : %s\n\n", sessionCred.LogonSession.Upn)
+
+			// Print ticket information
+			for i, ticket := range sessionCred.Tickets {
+				fmt.Printf("    [%x] - 0x%x - %d\n", i, ticket.EncryptionType, ticket.EncryptionType)
+				fmt.Printf("      Start/End/MaxRenew: %s ; %s ; %s\n",
+					ticket.StartTime.Format("2006-01-02 15:04:05"),
+					ticket.EndTime.Format("2006-01-02 15:04:05"),
+					ticket.RenewTime.Format("2006-01-02 15:04:05"))
+				fmt.Printf("      Server Name       : %s @ %s\n", ticket.ServerName, ticket.ServerRealm)
+				fmt.Printf("      Client Name       : %s @ %s\n", ticket.ClientName, ticket.ClientRealm)
+				fmt.Printf("      Flags             : %s\n\n", formatFlags(ticket.TicketFlags))
+			}
+		}
+
+	} else if displayFormat == Full {
+		for _, sessionCred := range sessionCreds {
+			if len(sessionCred.Tickets) == 0 && !showAll {
+				continue
+			}
+
+			// Print detailed session information
+			fmt.Printf("UserName                 : %s\n", sessionCred.LogonSession.Username)
+			fmt.Printf("Domain                   : %s\n", sessionCred.LogonSession.LogonDomain)
+			fmt.Printf("LogonId                  : 0x%x\n", sessionCred.LogonSession.LogonID.LowPart)
+			if sessionCred.LogonSession.Sid != nil {
+				fmt.Printf("UserSID                  : %s\n", sessionCred.LogonSession.Sid.String())
+			}
+			fmt.Printf("AuthenticationPackage    : %s\n", sessionCred.LogonSession.AuthenticationPackage)
+			fmt.Printf("LogonType                : %s\n", sessionCred.LogonSession.LogonType)
+			fmt.Printf("LogonTime                : %s\n", sessionCred.LogonSession.LogonTime.Format("2006-01-02 15:04:05"))
+			fmt.Printf("LogonServer              : %s\n", sessionCred.LogonSession.LogonServer)
+			fmt.Printf("LogonServerDNSDomain     : %s\n", sessionCred.LogonSession.DnsDomainName)
+			fmt.Printf("UserPrincipalName        : %s\n\n", sessionCred.LogonSession.Upn)
+
+			// Print detailed ticket information
+			for _, ticket := range sessionCred.Tickets {
+				if ticket.KrbCred != nil {
+					displayTicket(ticket.KrbCred)
+				}
+			}
 		}
 	}
+}
 
-	if len(rest) > 0 {
-		fmt.Printf("%sRemaining: %d bytes\n", indent, len(rest))
-		DumpASN1(rest, indent)
+// DisplayTicket displays detailed information about a Kerberos credential
+func displayTicket(krbCred *KrbCred) {
+	fmt.Printf("    Ticket Cache: \n")
+	fmt.Printf("      Ticket[0] - Server Name      : %s\n", krbCred.Tickets[0].SName.NameString)
+	fmt.Printf("      Ticket[0] - Realm           : %s\n", krbCred.Tickets[0].Realm)
+	fmt.Printf("      Ticket[0] - Encryption Type : 0x%x\n", krbCred.Tickets[0].EncPart.EType)
+	if krbCred.Tickets[0].EncPart.KVNO != 0 {
+		fmt.Printf("      Ticket[0] - Key Version    : %d\n", krbCred.Tickets[0].EncPart.KVNO)
 	}
+	fmt.Printf("      Ticket[0] - Ticket Length   : %d\n\n", len(krbCred.Tickets[0].EncPart.Cipher))
 }
 
 /*
@@ -856,9 +829,6 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 			encodedTicket := make([]byte, encodedTicketSize)
 			copy(encodedTicket,
 				(*[1 << 30]byte)(unsafe.Pointer(response.Ticket.EncodedTicket))[:encodedTicketSize])
-
-			fmt.Printf("[DEBUG] Full ASN.1 structure:\n")
-			DumpASN1(encodedTicket, "  ")
 
 			fmt.Printf("[*] Attempting to parse ticket data...\n")
 			krbCred, err := parseTicketData(encodedTicket)
@@ -1214,6 +1184,7 @@ func GetKerberosTickets() []map[string]interface{} {
 
 	if len(ticketCache) > 0 {
 		fmt.Printf("[+] Successfully collected %d Kerberos tickets\n", len(ticketCache))
+		displayTickets(sessionCreds, Full, true)
 		return ticketCache
 	}
 
