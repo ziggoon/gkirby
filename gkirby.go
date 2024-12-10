@@ -4,9 +4,9 @@
 package gkirby
 
 import (
-	"encoding/asn1"
 	"encoding/base64"
 	"fmt"
+	"github.com/jcmturner/gofork/encoding/asn1"
 	"golang.org/x/sys/windows"
 	"strings"
 	"time"
@@ -80,11 +80,21 @@ type KrbTicket struct {
 //	   tickets[2] SEQUENCE OF Ticket,
 //	   enc-part[3] EncryptedData -- EncKrbCredPart
 //	}
-type KrbCred struct {
+//
+// thank the lord for gokrb5!!! most of the KrbCred stuff is taken from them
+type marshalKrbCred struct {
 	Pvno    int           `asn1:"explicit,tag:0"`
 	MsgType int           `asn1:"explicit,tag:1"`
-	Tickets []Ticket      `asn1:"explicit,tag:2"`
+	Tickets asn1.RawValue `asn1:"explicit,tag:2"`
 	EncPart EncryptedData `asn1:"explicit,tag:3"`
+}
+
+type KrbCred struct {
+	Pvno             int
+	MsgType          int
+	Tickets          []Ticket
+	EncPart          EncryptedData
+	DecryptedEncPart EncKrbCredPart
 }
 
 //	Ticket::= [APPLICATION 1] SEQUENCE {
@@ -107,7 +117,7 @@ type Ticket struct {
 //	}
 type EncryptedData struct {
 	EType  int32  `asn1:"explicit,tag:0"`
-	KVNO   int32  `asn1:"explicit,tag:1,optional"`
+	KVNO   int    `asn1:"explicit,optional,tag:1"`
 	Cipher []byte `asn1:"explicit,tag:2"`
 }
 
@@ -117,7 +127,7 @@ type EncryptedData struct {
 //	}
 type PrincipalName struct {
 	NameType   int32    `asn1:"explicit,tag:0"`
-	NameString []string `asn1:"explicit,tag:1,ia5"`
+	NameString []string `asn1:"generalstring,explicit,tag:1"`
 }
 
 //	EncKrbCredPart  ::= [APPLICATION 29] SEQUENCE {
@@ -130,11 +140,11 @@ type PrincipalName struct {
 //	}
 type EncKrbCredPart struct {
 	TicketInfo []KrbCredInfo `asn1:"explicit,tag:0"`
-	Nonce      uint32        `asn1:"explicit,tag:1,optional"`
-	Timestamp  *time.Time    `asn1:"explicit,tag:2,optional"`
-	Usec       *time.Time    `asn1:"explicit,tag:3,optional"`
-	SrcAddress *string       `asn1:"explicit,tag:4,optional"`
-	DstAddress *string       `asn1:"explicit,tag:5,optional"`
+	Nonce      int           `asn1:"optional,explicit,tag:1"`
+	Timestamp  time.Time     `asn1:"generalized,optional,explicit,tag:2"`
+	Usec       int           `asn1:"optional,explicit,tag:3"`
+	SrcAddress HostAddress   `asn1:"optional,explicit,tag:4"`
+	DstAddress HostAddress   `asn1:"optional,explicit,tag:5"`
 }
 
 //	KrbCredInfo     ::= SEQUENCE {
@@ -152,16 +162,16 @@ type EncKrbCredPart struct {
 //	}
 type KrbCredInfo struct {
 	Key       EncryptionKey  `asn1:"explicit,tag:0"`
-	PRealm    *string        `asn1:"explicit,tag:1,optional"`
-	PName     *PrincipalName `asn1:"explicit,tag:2,optional"`
-	Flags     *int64         `asn1:"explicit,tag:3,optional"`
-	AuthTime  *time.Time     `asn1:"explicit,tag:4,optional"`
-	StartTime *time.Time     `asn1:"explicit,tag:5,optional"`
-	EndTime   *time.Time     `asn1:"explicit,tag:6,optional"`
-	RenewTill *time.Time     `asn1:"explicit,tag:7,optional"`
-	SRealm    *string        `asn1:"explicit,tag:8,optional"`
-	SName     *PrincipalName `asn1:"explicit,tag:9,optional"`
-	CAddr     []HostAddress  `asn1:"explicit,tag:10,optional"`
+	PRealm    string         `asn1:"generalstring,optional,explicit,tag:1"`
+	PName     PrincipalName  `asn1:"optional,explicit,tag:2"`
+	Flags     asn1.BitString `asn1:"optional,explicit,tag:3"`
+	AuthTime  time.Time      `asn1:"generalized,optional,explicit,tag:4"`
+	StartTime time.Time      `asn1:"generalized,optional,explicit,tag:5"`
+	EndTime   time.Time      `asn1:"generalized,optional,explicit,tag:6"`
+	RenewTill time.Time      `asn1:"generalized,optional,explicit,tag:7"`
+	SRealm    string         `asn1:"optional,explicit,ia5,tag:8"`
+	SName     PrincipalName  `asn1:"optional,explicit,tag:9"`
+	CAddr     HostAddresses  `asn1:"optional,explicit,tag:10"`
 }
 
 //	EncryptionKey::= SEQUENCE {
@@ -213,8 +223,8 @@ type PrincipalNameData struct {
 type HostAddresses []HostAddress
 
 type HostAddress struct {
-	addrType    int32
-	addressData []byte
+	addrType    int32  `asn1:"explicit,tag:0"`
+	addressData []byte `asn1:"explicit,tag:1"`
 }
 
 type LsaString struct {
@@ -353,60 +363,9 @@ const (
 )
 
 func parseTicketData(ticketData []byte) (*KrbCred, error) {
-	fmt.Printf("[*] Parsing ticket data of length: %d bytes\n", len(ticketData))
-
-	// The KRB-CRED structure is an APPLICATION 22
-	var krbCred KrbCred
-	_, err := asn1.UnmarshalWithParams(ticketData, &krbCred, "application,explicit,tag:22")
-	if err != nil {
-		// If explicit tag fails, try implicit
-		_, err = asn1.UnmarshalWithParams(ticketData, &krbCred, "application,implicit,tag:22")
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
-		}
-	}
-
-	// Basic validation
-	if krbCred.Pvno != 5 {
-		return nil, fmt.Errorf("invalid protocol version: %d", krbCred.Pvno)
-	}
-
-	if krbCred.MsgType != 22 {
-		return nil, fmt.Errorf("invalid message type: %d", krbCred.MsgType)
-	}
-
-	// Log successful parse details
-	fmt.Printf("[+] Successfully parsed KRB-CRED structure:\n")
-	fmt.Printf("    Protocol Version: %d\n", krbCred.Pvno)
-	fmt.Printf("    Message Type: %d\n", krbCred.MsgType)
-	fmt.Printf("    Number of tickets: %d\n", len(krbCred.Tickets))
-
-	// Validate and log ticket details
-	for i, ticket := range krbCred.Tickets {
-		fmt.Printf("[+] Ticket %d details:\n", i)
-		fmt.Printf("    Version: %d\n", ticket.TktVno)
-		fmt.Printf("    Realm: %s\n", ticket.Realm)
-		if len(ticket.SName.NameString) > 0 {
-			fmt.Printf("    Service Name: %s\n", strings.Join(ticket.SName.NameString, "/"))
-		}
-		fmt.Printf("    Encryption Type: %d\n", ticket.EncPart.EType)
-		fmt.Printf("    Encrypted Data Length: %d bytes\n", len(ticket.EncPart.Cipher))
-	}
-
-	return &krbCred, nil
+	return nil, nil
 }
 
-// Helper function for min
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-/*
-misc helper funcs
-*/
 func fileTimeToTime(fileTime int64) time.Time {
 	nsec := (fileTime - windowsToUnixEpochIntervals) * 100
 	return time.Unix(0, nsec).Local()
