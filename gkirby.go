@@ -398,117 +398,24 @@ func (t TicketFlags) String() string {
 asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
-	// First parse the outer APPLICATION 22 tag
 	var outer asn1.RawValue
 	_, err := asn1.Unmarshal(encodedTicket, &outer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse outer APPLICATION tag: %v", err)
 	}
+
 	if outer.Class != 1 || outer.Tag != 22 {
 		return nil, fmt.Errorf("unexpected outer tag: class %d, tag %d", outer.Class, outer.Tag)
 	}
 
-	// Parse the outer SEQUENCE
-	var seq asn1.RawValue
-	remaining, err := asn1.Unmarshal(outer.Bytes, &seq)
+	// Parse the inner SEQUENCE
+	var krbCred KrbCred
+	_, err = asn1.Unmarshal(outer.Bytes, &krbCred)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse outer SEQUENCE: %v", err)
+		return nil, fmt.Errorf("failed to parse KrbCred content: %v", err)
 	}
 
-	// Create our KrbCred struct
-	krbCred := &KrbCred{}
-
-	// Process each tagged component in the sequence
-	remaining = seq.Bytes
-	for len(remaining) > 0 {
-		var tag asn1.RawValue
-		var err error
-		remaining, err = asn1.Unmarshal(remaining, &tag)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse tag: %v", err)
-		}
-
-		// All our fields are CONTEXT specific (class 2)
-		if tag.Class != 2 {
-			return nil, fmt.Errorf("unexpected tag class: %d", tag.Class)
-		}
-
-		switch tag.Tag {
-		case 0: // pvno
-			var val int
-			_, err = asn1.Unmarshal(tag.Bytes, &val)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse pvno: %v", err)
-			}
-			krbCred.Pvno = val
-
-		case 1: // msg-type
-			var val int
-			_, err = asn1.Unmarshal(tag.Bytes, &val)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse msg-type: %v", err)
-			}
-			krbCred.MsgType = val
-
-		case 2: // tickets sequence
-			var ticketSeq asn1.RawValue
-			_, err = asn1.Unmarshal(tag.Bytes, &ticketSeq)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse tickets sequence: %v", err)
-			}
-
-			// Parse each ticket in the sequence
-			ticketBytes := ticketSeq.Bytes
-			var tickets []Ticket
-			for len(ticketBytes) > 0 {
-				var ticketOuterApp asn1.RawValue
-				var err error
-				ticketBytes, err = asn1.Unmarshal(ticketBytes, &ticketOuterApp)
-				if err != nil {
-					return nil, fmt.Errorf("failed to parse ticket APPLICATION tag: %v", err)
-				}
-
-				// Verify it's APPLICATION 1
-				if ticketOuterApp.Class != 1 || ticketOuterApp.Tag != 1 {
-					return nil, fmt.Errorf("unexpected ticket tag: class %d, tag %d", ticketOuterApp.Class, ticketOuterApp.Tag)
-				}
-
-				// Now parse the actual ticket sequence content
-				var ticket struct {
-					TktVno  int32         `asn1:"explicit,tag:0"`
-					Realm   string        `asn1:"explicit,tag:1"`
-					SName   PrincipalName `asn1:"explicit,tag:2"`
-					EncPart EncryptedData `asn1:"explicit,tag:3"`
-				}
-
-				_, err = asn1.Unmarshal(ticketOuterApp.Bytes, &ticket)
-				if err != nil {
-					return nil, fmt.Errorf("failed to unmarshal ticket content: %v", err)
-				}
-
-				tickets = append(tickets, Ticket{
-					TktVno:  ticket.TktVno,
-					Realm:   ticket.Realm,
-					SName:   ticket.SName,
-					EncPart: ticket.EncPart,
-				})
-			}
-			krbCred.Tickets = tickets
-
-		case 3: // enc-part
-			var encPart EncryptedData
-			_, err = asn1.Unmarshal(tag.Bytes, &encPart)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse enc-part: %v", err)
-			}
-			krbCred.EncPart = encPart
-
-		default:
-			return nil, fmt.Errorf("unexpected tag: %d", tag.Tag)
-		}
-	}
-
-	return krbCred, nil
+	return &krbCred, nil
 }
 
 func DefaultDisplayOptions() *DisplayOptions {
