@@ -352,6 +352,17 @@ const (
 	Full
 )
 
+func parseTicketData(ticketData []byte) (*KrbCred, error) {
+	var krbCred KrbCred
+
+	_, err := asn1.UnmarshalWithParams(ticketData, &krbCred, "application,tag:22")
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
+	}
+
+	return &krbCred, nil
+}
+
 /*
 misc helper funcs
 */
@@ -360,7 +371,6 @@ func fileTimeToTime(fileTime int64) time.Time {
 	return time.Unix(0, nsec).Local()
 }
 
-// xd
 func (t TicketFlags) String() string {
 	var flags []string
 
@@ -395,30 +405,6 @@ func (t TicketFlags) String() string {
 	return strings.Join(flags, ", ")
 }
 
-/*
-asn.1 helper funcs
-*/
-func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
-	var krbCred KrbCred
-
-	rest, err := asn1.UnmarshalWithParams(encodedTicket, &krbCred, "application,tag:22")
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal KRB-CRED: %v", err)
-	}
-
-	// Verify no trailing data
-	if len(rest) > 0 {
-		return nil, fmt.Errorf("trailing data after KRB-CRED decode")
-	}
-
-	// Validate message type and version
-	if krbCred.Pvno != 5 || krbCred.MsgType != 22 {
-		return nil, fmt.Errorf("invalid KRB-CRED version or message type")
-	}
-
-	return &krbCred, nil
-}
-
 func DefaultDisplayOptions() *DisplayOptions {
 	return &DisplayOptions{
 		IndentLevel:           2,
@@ -429,7 +415,6 @@ func DefaultDisplayOptions() *DisplayOptions {
 	}
 }
 
-// xd
 func (k *KrbCred) EncodeToBase64() (string, error) {
 	data, err := asn1.Marshal(*k)
 	if err != nil {
@@ -891,7 +876,16 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse ticket data: %v", err)
 			}
-			fmt.Printf("[+] Successfully parsed ticket data\n")
+
+			// Add validation
+			if krbCred.Pvno != 5 {
+				return nil, fmt.Errorf("invalid protocol version: %d", krbCred.Pvno)
+			}
+
+			if krbCred.MsgType != 22 {
+				return nil, fmt.Errorf("invalid message type: %d", krbCred.MsgType)
+			}
+
 			return krbCred, nil
 		}
 		fmt.Printf("[-] Encoded ticket size is 0\n")
