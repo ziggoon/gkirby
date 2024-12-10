@@ -360,6 +360,7 @@ func fileTimeToTime(fileTime int64) time.Time {
 	return time.Unix(0, nsec).Local()
 }
 
+// xd
 func (t TicketFlags) String() string {
 	var flags []string
 
