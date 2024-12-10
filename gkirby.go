@@ -398,52 +398,172 @@ func (t TicketFlags) String() string {
 asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
-	// First, decode the outer APPLICATION tag
+	fmt.Printf("[*] Starting ticket data parsing\n")
+	fmt.Printf("[*] Encoded ticket length: %d bytes\n", len(encodedTicket))
+
+	// First parse the outer APPLICATION 22 tag
 	var outer asn1.RawValue
-	rest, err := asn1.Unmarshal(encodedTicket, &outer)
+	fmt.Printf("[*] Attempting to parse outer APPLICATION tag\n")
+	_, err := asn1.Unmarshal(encodedTicket, &outer)
 	if err != nil {
+		fmt.Printf("[-] Failed to parse outer APPLICATION tag: %v\n", err)
 		return nil, fmt.Errorf("failed to parse outer APPLICATION tag: %v", err)
 	}
-
-	// Verify we've consumed all bytes if exactLength is true
-	if len(rest) > 0 {
-		return nil, fmt.Errorf("trailing garbage after ASN.1 data")
-	}
-
-	// Verify the outer tag matches KRB-CRED [APPLICATION 22]
 	if outer.Class != 1 || outer.Tag != 22 {
-		return nil, fmt.Errorf("unexpected outer APPLICATION tag: class %d, tag %d (expected class 1, tag 22)",
-			outer.Class, outer.Tag)
+		fmt.Printf("[-] Unexpected outer tag values - Class: %d, Tag: %d (expected Class: 1, Tag: 22)\n", outer.Class, outer.Tag)
+		return nil, fmt.Errorf("unexpected outer tag: class %d, tag %d", outer.Class, outer.Tag)
 	}
+	fmt.Printf("[+] Successfully parsed outer APPLICATION tag - Class: %d, Tag: %d\n", outer.Class, outer.Tag)
 
-	// Parse the inner SEQUENCE
-	var krbCred KrbCred
-	rest, err = asn1.Unmarshal(outer.Bytes, &krbCred)
+	// Parse the outer SEQUENCE
+	var seq asn1.RawValue
+	fmt.Printf("[*] Attempting to parse outer SEQUENCE\n")
+	remaining, err := asn1.Unmarshal(outer.Bytes, &seq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse KrbCred content: %v", err)
+		fmt.Printf("[-] Failed to parse outer SEQUENCE: %v\n", err)
+		return nil, fmt.Errorf("failed to parse outer SEQUENCE: %v", err)
+	}
+	fmt.Printf("[+] Successfully parsed outer SEQUENCE\n")
+
+	// Create our KrbCred struct
+	krbCred := &KrbCred{}
+	fmt.Printf("[*] Created empty KrbCred struct\n")
+
+	// Process each tagged component in the sequence
+	remaining = seq.Bytes
+	componentCount := 0
+	fmt.Printf("[*] Starting to process sequence components\n")
+	for len(remaining) > 0 {
+		componentCount++
+		fmt.Printf("\n[*] Processing component %d\n", componentCount)
+		var tag asn1.RawValue
+		var err error
+		remaining, err = asn1.Unmarshal(remaining, &tag)
+		if err != nil {
+			fmt.Printf("[-] Failed to parse tag in component %d: %v\n", componentCount, err)
+			return nil, fmt.Errorf("failed to parse tag: %v", err)
+		}
+
+		// All our fields are CONTEXT specific (class 2)
+		if tag.Class != 2 {
+			fmt.Printf("[-] Unexpected tag class in component %d: %d (expected: 2)\n", componentCount, tag.Class)
+			return nil, fmt.Errorf("unexpected tag class: %d", tag.Class)
+		}
+		fmt.Printf("[*] Found tag Class: %d, Tag: %d\n", tag.Class, tag.Tag)
+
+		switch tag.Tag {
+		case 0: // pvno
+			fmt.Printf("[*] Processing pvno (Tag 0)\n")
+			var val int
+			_, err = asn1.Unmarshal(tag.Bytes, &val)
+			if err != nil {
+				fmt.Printf("[-] Failed to parse pvno: %v\n", err)
+				return nil, fmt.Errorf("failed to parse pvno: %v", err)
+			}
+			krbCred.Pvno = val
+			fmt.Printf("[+] Successfully parsed pvno: %d\n", val)
+
+		case 1: // msg-type
+			fmt.Printf("[*] Processing msg-type (Tag 1)\n")
+			var val int
+			_, err = asn1.Unmarshal(tag.Bytes, &val)
+			if err != nil {
+				fmt.Printf("[-] Failed to parse msg-type: %v\n", err)
+				return nil, fmt.Errorf("failed to parse msg-type: %v", err)
+			}
+			krbCred.MsgType = val
+			fmt.Printf("[+] Successfully parsed msg-type: %d\n", val)
+
+		case 2: // tickets sequence
+			fmt.Printf("[*] Processing tickets sequence (Tag 2)\n")
+			var ticketSeq asn1.RawValue
+			_, err = asn1.Unmarshal(tag.Bytes, &ticketSeq)
+			if err != nil {
+				fmt.Printf("[-] Failed to parse tickets sequence: %v\n", err)
+				return nil, fmt.Errorf("failed to parse tickets sequence: %v", err)
+			}
+			fmt.Printf("[+] Successfully parsed ticket sequence container\n")
+
+			// Parse each ticket in the sequence
+			ticketBytes := ticketSeq.Bytes
+			ticketCount := 0
+			var tickets []Ticket
+			fmt.Printf("[*] Starting to parse individual tickets\n")
+			for len(ticketBytes) > 0 {
+				ticketCount++
+				fmt.Printf("\n[*] Processing ticket %d\n", ticketCount)
+				var ticketOuterApp asn1.RawValue
+				var err error
+				ticketBytes, err = asn1.Unmarshal(ticketBytes, &ticketOuterApp)
+				if err != nil {
+					fmt.Printf("[-] Failed to parse ticket %d APPLICATION tag: %v\n", ticketCount, err)
+					return nil, fmt.Errorf("failed to parse ticket APPLICATION tag: %v", err)
+				}
+
+				// Verify it's APPLICATION 1
+				if ticketOuterApp.Class != 1 || ticketOuterApp.Tag != 1 {
+					fmt.Printf("[-] Unexpected ticket tag: class %d, tag %d (expected: class 1, tag 1)\n",
+						ticketOuterApp.Class, ticketOuterApp.Tag)
+					return nil, fmt.Errorf("unexpected ticket tag: class %d, tag %d",
+						ticketOuterApp.Class, ticketOuterApp.Tag)
+				}
+				fmt.Printf("[+] Found valid ticket APPLICATION tag\n")
+
+				// Now parse the actual ticket sequence content
+				var ticket struct {
+					TktVno  int32         `asn1:"explicit,tag:0"`
+					Realm   string        `asn1:"explicit,tag:1"`
+					SName   PrincipalName `asn1:"explicit,tag:2"`
+					EncPart EncryptedData `asn1:"explicit,tag:3"`
+				}
+
+				_, err = asn1.Unmarshal(ticketOuterApp.Bytes, &ticket)
+				if err != nil {
+					fmt.Printf("[-] Failed to unmarshal ticket %d content: %v\n", ticketCount, err)
+					return nil, fmt.Errorf("failed to unmarshal ticket content: %v", err)
+				}
+
+				fmt.Printf("[+] Successfully parsed ticket %d:\n", ticketCount)
+				fmt.Printf("    - Version: %d\n", ticket.TktVno)
+				fmt.Printf("    - Realm: %s\n", ticket.Realm)
+				fmt.Printf("    - Service Name Type: %d\n", ticket.SName.NameType)
+				fmt.Printf("    - Service Name: %s\n", strings.Join(ticket.SName.NameString, "/"))
+				fmt.Printf("    - Encryption Type: %d\n", ticket.EncPart.EType)
+				fmt.Printf("    - Key Version: %d\n", ticket.EncPart.KVNO)
+
+				tickets = append(tickets, Ticket{
+					TktVno:  ticket.TktVno,
+					Realm:   ticket.Realm,
+					SName:   ticket.SName,
+					EncPart: ticket.EncPart,
+				})
+			}
+			fmt.Printf("[+] Successfully parsed all %d tickets\n", ticketCount)
+			krbCred.Tickets = tickets
+
+		case 3: // enc-part
+			fmt.Printf("[*] Processing enc-part (Tag 3)\n")
+			var encPart EncryptedData
+			_, err = asn1.Unmarshal(tag.Bytes, &encPart)
+			if err != nil {
+				fmt.Printf("[-] Failed to parse enc-part: %v\n", err)
+				return nil, fmt.Errorf("failed to parse enc-part: %v", err)
+			}
+			krbCred.EncPart = encPart
+			fmt.Printf("[+] Successfully parsed enc-part:\n")
+			fmt.Printf("    - Encryption Type: %d\n", encPart.EType)
+			fmt.Printf("    - Key Version: %d\n", encPart.KVNO)
+			fmt.Printf("    - Cipher Length: %d bytes\n", len(encPart.Cipher))
+
+		default:
+			fmt.Printf("[-] Unexpected tag encountered: %d\n", tag.Tag)
+			return nil, fmt.Errorf("unexpected tag: %d", tag.Tag)
+		}
 	}
 
-	// Verify all bytes were consumed
-	if len(rest) > 0 {
-		return nil, fmt.Errorf("trailing garbage after KrbCred content")
-	}
-
-	// Validate KRB-CRED version number
-	if krbCred.Pvno != 5 {
-		return nil, fmt.Errorf("unexpected KRB-CRED version number: %d (expected 5)", krbCred.Pvno)
-	}
-
-	// Validate KRB-CRED message type
-	if krbCred.MsgType != 22 {
-		return nil, fmt.Errorf("unexpected KRB-CRED message type: %d (expected 22)", krbCred.MsgType)
-	}
-
-	// Validate that we have at least one ticket
-	if len(krbCred.Tickets) == 0 {
-		return nil, fmt.Errorf("no tickets found in KRB-CRED")
-	}
-
-	return &krbCred, nil
+	fmt.Printf("\n[+] Successfully parsed entire ticket structure\n")
+	fmt.Printf("[+] Total components processed: %d\n", componentCount)
+	return krbCred, nil
 }
 
 func DefaultDisplayOptions() *DisplayOptions {
@@ -456,6 +576,7 @@ func DefaultDisplayOptions() *DisplayOptions {
 	}
 }
 
+// xd
 func (k *KrbCred) EncodeToBase64() (string, error) {
 	data, err := asn1.Marshal(*k)
 	if err != nil {
