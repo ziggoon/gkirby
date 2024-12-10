@@ -398,21 +398,49 @@ func (t TicketFlags) String() string {
 asn.1 helper funcs
 */
 func parseTicketData(encodedTicket []byte) (*KrbCred, error) {
+	// First, decode the outer APPLICATION tag
 	var outer asn1.RawValue
-	_, err := asn1.Unmarshal(encodedTicket, &outer)
+	rest, err := asn1.Unmarshal(encodedTicket, &outer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse outer APPLICATION tag: %v", err)
 	}
 
+	// Verify we've consumed all bytes if exactLength is true
+	if len(rest) > 0 {
+		return nil, fmt.Errorf("trailing garbage after ASN.1 data")
+	}
+
+	// Verify the outer tag matches KRB-CRED [APPLICATION 22]
 	if outer.Class != 1 || outer.Tag != 22 {
-		return nil, fmt.Errorf("unexpected outer tag: class %d, tag %d", outer.Class, outer.Tag)
+		return nil, fmt.Errorf("unexpected outer APPLICATION tag: class %d, tag %d (expected class 1, tag 22)",
+			outer.Class, outer.Tag)
 	}
 
 	// Parse the inner SEQUENCE
 	var krbCred KrbCred
-	_, err = asn1.Unmarshal(outer.Bytes, &krbCred)
+	rest, err = asn1.Unmarshal(outer.Bytes, &krbCred)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse KrbCred content: %v", err)
+	}
+
+	// Verify all bytes were consumed
+	if len(rest) > 0 {
+		return nil, fmt.Errorf("trailing garbage after KrbCred content")
+	}
+
+	// Validate KRB-CRED version number
+	if krbCred.Pvno != 5 {
+		return nil, fmt.Errorf("unexpected KRB-CRED version number: %d (expected 5)", krbCred.Pvno)
+	}
+
+	// Validate KRB-CRED message type
+	if krbCred.MsgType != 22 {
+		return nil, fmt.Errorf("unexpected KRB-CRED message type: %d (expected 22)", krbCred.MsgType)
+	}
+
+	// Validate that we have at least one ticket
+	if len(krbCred.Tickets) == 0 {
+		return nil, fmt.Errorf("no tickets found in KRB-CRED")
 	}
 
 	return &krbCred, nil
