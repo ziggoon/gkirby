@@ -8,9 +8,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"golang.org/x/sys/windows"
-	"os"
 	"strings"
-	"text/tabwriter"
 	"time"
 	"unsafe"
 )
@@ -637,129 +635,6 @@ func DisplayTicket(cred *KrbCred, opts *DisplayOptions) error {
 	return nil
 }
 
-func SplitString(s string, chunkSize int) []string {
-	var chunks []string
-	if chunkSize <= 0 {
-		return chunks
-	}
-
-	runes := []rune(s)
-	for i := 0; i < len(runes); i += chunkSize {
-		end := i + chunkSize
-		if end > len(runes) {
-			end = len(runes)
-		}
-		chunks = append(chunks, string(runes[i:end]))
-	}
-	return chunks
-}
-
-func formatFlags(flags TicketFlags) string {
-	return fmt.Sprintf("%s (0x%x)", flags.String(), uint32(flags))
-}
-
-// DisplayTickets displays the provided session credentials in the specified format
-func displayTickets(sessionCreds []SessionCred, displayFormat TicketDisplayFormat, showAll bool) {
-	if displayFormat == Triage {
-		// Initialize tabwriter for aligned column output
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "LUID\tUserName\tService\tEndTime\t")
-		fmt.Fprintln(w, "----\t--------\t-------\t-------\t")
-
-		for _, sessionCred := range sessionCreds {
-			// Skip empty sessions unless showAll is true
-			if len(sessionCred.Tickets) == 0 && !showAll {
-				continue
-			}
-
-			for _, ticket := range sessionCred.Tickets {
-				luid := fmt.Sprintf("0x%x", sessionCred.LogonSession.LogonID.LowPart)
-				userName := fmt.Sprintf("%s @ %s", ticket.ClientName, ticket.ClientRealm)
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t\n",
-					luid,
-					userName,
-					ticket.ServerName,
-					ticket.EndTime.Format("2006-01-02 15:04:05"),
-				)
-			}
-		}
-		w.Flush()
-
-	} else if displayFormat == Klist {
-		for _, sessionCred := range sessionCreds {
-			if len(sessionCred.Tickets) == 0 && !showAll {
-				continue
-			}
-
-			// Print session information
-			fmt.Printf("UserName                 : %s\n", sessionCred.LogonSession.Username)
-			fmt.Printf("Domain                   : %s\n", sessionCred.LogonSession.LogonDomain)
-			fmt.Printf("LogonId                  : 0x%x\n", sessionCred.LogonSession.LogonID.LowPart)
-			if sessionCred.LogonSession.Sid != nil {
-				fmt.Printf("UserSID                  : %s\n", sessionCred.LogonSession.Sid.String())
-			}
-			fmt.Printf("AuthenticationPackage    : %s\n", sessionCred.LogonSession.AuthenticationPackage)
-			fmt.Printf("LogonType                : %s\n", sessionCred.LogonSession.LogonType)
-			fmt.Printf("LogonTime                : %s\n", sessionCred.LogonSession.LogonTime.Format("2006-01-02 15:04:05"))
-			fmt.Printf("LogonServer              : %s\n", sessionCred.LogonSession.LogonServer)
-			fmt.Printf("LogonServerDNSDomain     : %s\n", sessionCred.LogonSession.DnsDomainName)
-			fmt.Printf("UserPrincipalName        : %s\n\n", sessionCred.LogonSession.Upn)
-
-			// Print ticket information
-			for i, ticket := range sessionCred.Tickets {
-				fmt.Printf("    [%x] - 0x%x - %d\n", i, ticket.EncryptionType, ticket.EncryptionType)
-				fmt.Printf("      Start/End/MaxRenew: %s ; %s ; %s\n",
-					ticket.StartTime.Format("2006-01-02 15:04:05"),
-					ticket.EndTime.Format("2006-01-02 15:04:05"),
-					ticket.RenewTime.Format("2006-01-02 15:04:05"))
-				fmt.Printf("      Server Name       : %s @ %s\n", ticket.ServerName, ticket.ServerRealm)
-				fmt.Printf("      Client Name       : %s @ %s\n", ticket.ClientName, ticket.ClientRealm)
-				fmt.Printf("      Flags             : %s\n\n", formatFlags(ticket.TicketFlags))
-			}
-		}
-
-	} else if displayFormat == Full {
-		for _, sessionCred := range sessionCreds {
-			if len(sessionCred.Tickets) == 0 && !showAll {
-				continue
-			}
-
-			// Print detailed session information
-			fmt.Printf("UserName                 : %s\n", sessionCred.LogonSession.Username)
-			fmt.Printf("Domain                   : %s\n", sessionCred.LogonSession.LogonDomain)
-			fmt.Printf("LogonId                  : 0x%x\n", sessionCred.LogonSession.LogonID.LowPart)
-			if sessionCred.LogonSession.Sid != nil {
-				fmt.Printf("UserSID                  : %s\n", sessionCred.LogonSession.Sid.String())
-			}
-			fmt.Printf("AuthenticationPackage    : %s\n", sessionCred.LogonSession.AuthenticationPackage)
-			fmt.Printf("LogonType                : %s\n", sessionCred.LogonSession.LogonType)
-			fmt.Printf("LogonTime                : %s\n", sessionCred.LogonSession.LogonTime.Format("2006-01-02 15:04:05"))
-			fmt.Printf("LogonServer              : %s\n", sessionCred.LogonSession.LogonServer)
-			fmt.Printf("LogonServerDNSDomain     : %s\n", sessionCred.LogonSession.DnsDomainName)
-			fmt.Printf("UserPrincipalName        : %s\n\n", sessionCred.LogonSession.Upn)
-
-			// Print detailed ticket information
-			for _, ticket := range sessionCred.Tickets {
-				if ticket.KrbCred != nil {
-					displayTicket(ticket.KrbCred)
-				}
-			}
-		}
-	}
-}
-
-// DisplayTicket displays detailed information about a Kerberos credential
-func displayTicket(krbCred *KrbCred) {
-	fmt.Printf("    Ticket Cache: \n")
-	fmt.Printf("      Ticket[0] - Server Name      : %s\n", krbCred.Tickets[0].SName.NameString)
-	fmt.Printf("      Ticket[0] - Realm           : %s\n", krbCred.Tickets[0].Realm)
-	fmt.Printf("      Ticket[0] - Encryption Type : 0x%x\n", krbCred.Tickets[0].EncPart.EType)
-	if krbCred.Tickets[0].EncPart.KVNO != 0 {
-		fmt.Printf("      Ticket[0] - Key Version    : %d\n", krbCred.Tickets[0].EncPart.KVNO)
-	}
-	fmt.Printf("      Ticket[0] - Ticket Length   : %d\n\n", len(krbCred.Tickets[0].EncPart.Cipher))
-}
-
 func DisplayMapTickets(tickets []map[string]interface{}, format TicketDisplayFormat) {
 	if format == Triage {
 		// Print header for triage format
@@ -865,6 +740,7 @@ func DisplayMapTickets(tickets []map[string]interface{}, format TicketDisplayFor
 				opts := DefaultDisplayOptions()
 				opts.DisplayB64Ticket = true
 				err := DisplayTicket(krbCred, opts)
+				fmt.Printf("[!] KRB CRED: %+v", krbCred)
 				if err != nil {
 					fmt.Printf("Error displaying KRB_CRED: %v\n", err)
 				}
