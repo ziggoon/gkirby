@@ -972,6 +972,7 @@ func extractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 			copy(encodedTicket,
 				(*[1 << 30]byte)(unsafe.Pointer(response.Ticket.EncodedTicket))[:encodedTicketSize])
 
+			fmt.Printf("[*] Raw ticket bytes: % X\n", encodedTicket[:min(32, len(encodedTicket))])
 			fmt.Printf("[*] Attempting to parse ticket data...\n")
 			krbCred, err := parseTicketData(encodedTicket)
 			if err != nil {
