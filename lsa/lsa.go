@@ -24,8 +24,11 @@ func GetLsaHandle() (windows.Handle, error) {
 
 	var lsaHandle windows.Handle
 	if isHighIntegrity && !isSystem {
+		fmt.Printf("process is high integrity, but not system\n")
 		gotSystem := helpers.GetSystem()
+		// might not want to just return a bad handle, instead just run as the current user?
 		if !gotSystem {
+			fmt.Printf("failed to get SYSTEM\n")
 			return 0, fmt.Errorf("failed to get SYSTEM privileges")
 		}
 	}
