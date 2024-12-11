@@ -12,6 +12,4 @@ var (
 	LsaFreeReturnBuffer            = secur32.NewProc("LsaFreeReturnBuffer")
 	LsaEnumerateLogonSessions      = secur32.NewProc("LsaEnumerateLogonSessions")
 	ImpersonateLoggedOnUser        = advapi32.NewProc("ImpersonateLoggedOnUser")
-	DuplicateToken                 = advapi32.NewProc("DuplicateToken")
-	RevertToSelf                   = advapi32.NewProc("RevertToSelf")
 )

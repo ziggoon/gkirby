@@ -80,6 +80,8 @@ func GetSystem() bool {
 				)
 				defer windows.CloseHandle(handle)
 
+				fmt.Printf("winlogon handle obtained\n")
+
 				if err != nil {
 					return false
 				}
@@ -89,22 +91,31 @@ func GetSystem() bool {
 				if err != nil {
 					return false
 				}
-				defer token.Close()
+
+				fmt.Printf("token obtained: %v\n", token)
 
 				var duplicateToken windows.Token
-				ret, _, err := dll.DuplicateToken.Call(uintptr(token), uintptr(2), uintptr(unsafe.Pointer(&duplicateToken)))
-				if ret == 0 {
-					fmt.Println("DuplicateToken failed:", err)
+				err = windows.DuplicateTokenEx(token, windows.TOKEN_ALL_ACCESS, nil, windows.SecurityImpersonation, windows.TokenPrimary, &duplicateToken)
+				if err != nil {
+					fmt.Printf("DuplicateTokenEx failed: %v", err)
 					return false
 				}
+
+				fmt.Printf("duplicateToken: %v\n", duplicateToken)
+
+				ret, _, err := dll.ImpersonateLoggedOnUser.Call(uintptr(duplicateToken))
+				if ret == 0 {
+					return false
+				}
+				defer token.Close()
 				defer duplicateToken.Close()
 
-				ret, _, err = dll.ImpersonateLoggedOnUser.Call(uintptr(duplicateToken))
-				if ret == 0 {
+				isSystem, _ := IsSystem()
+				if !isSystem {
 					return false
+				} else {
+					return true
 				}
-
-				return true
 			}
 
 			err = windows.Process32Next(snapshot, &procEntry)
