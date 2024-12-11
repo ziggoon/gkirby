@@ -169,7 +169,7 @@ func ExtractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 
 	request := (*types.KerbRetrieveTktRequest)(bufferPtr)
 	request.MessageType = types.KerbRetrieveEncodedTicketMessage
-	request.LogonId = luid
+	request.LogonId = windows.LUID{LowPart: 0, HighPart: 0}
 	request.TicketFlags = 0
 	request.CacheOptions = 8
 	request.EncryptionType = 0
