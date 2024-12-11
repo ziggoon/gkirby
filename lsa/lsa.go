@@ -12,6 +12,7 @@ import (
 )
 
 func GetLsaHandle() (windows.Handle, error) {
+	fmt.Printf("in getlsahandle\n")
 	isHighIntegrity, err := helpers.IsHighIntegrity()
 	if err != nil {
 		return 0, err

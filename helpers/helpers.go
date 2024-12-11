@@ -170,7 +170,6 @@ func IsSystem() (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("CreateWellKnownSid failed: %v", err)
 	}
-	defer windows.FreeSid(systemSid)
 
 	fmt.Printf("systemSid: %v\n", systemSid)
 	fmt.Printf("user sid: %v\n", user.User.Sid)
@@ -180,6 +179,7 @@ func IsSystem() (bool, error) {
 }
 
 func IsHighIntegrity() (bool, error) {
+	fmt.Printf("in IsHighIntegrity\n")
 	var token windows.Token
 	h := windows.CurrentProcess()
 	err := windows.OpenProcessToken(h, windows.TOKEN_QUERY, &token)
