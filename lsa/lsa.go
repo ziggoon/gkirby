@@ -20,7 +20,13 @@ func GetLsaHandle() (windows.Handle, error) {
 	var lsaHandle windows.Handle
 	if isHighIntegrity && !isSystem {
 		fmt.Printf("process is high integrity, but not system\n")
-		helpers.GetSystem()
+		success := helpers.GetSystem()
+		if !success {
+			return 0, fmt.Errorf("failed to get SYSTEM privileges")
+		}
+		if !helpers.IsSystem() {
+			return 0, fmt.Errorf("failed to maintain SYSTEM privileges")
+		}
 	}
 
 	ret, _, err := dll.LsaConnectUntrusted.Call(
@@ -28,13 +34,6 @@ func GetLsaHandle() (windows.Handle, error) {
 	)
 	if ret != 0 {
 		return lsaHandle, fmt.Errorf("LsaConnectUntrusted failed: %v", err)
-	}
-
-	isSystem = helpers.IsSystem()
-	if !isSystem {
-		fmt.Printf("not system for some reason\n")
-	} else {
-		fmt.Printf("should be system\n")
 	}
 
 	return lsaHandle, nil
