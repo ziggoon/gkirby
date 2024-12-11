@@ -113,6 +113,8 @@ func GetSystem() bool {
 			}
 			defer duplicateToken.Close()
 
+			fmt.Printf("duplicate token obtained: %v\n", duplicateToken)
+
 			ret, _, errNo := dll.ImpersonateLoggedOnUser.Call(uintptr(duplicateToken))
 			if ret == 0 {
 				fmt.Printf("ImpersonateLoggedOnUser failed with error: %v\n", errNo)
@@ -145,27 +147,36 @@ func GetSystem() bool {
 }
 
 func IsSystem() bool {
+	// Try thread token first
 	var token windows.Token
-	procHandle := windows.CurrentProcess()
-	err := windows.OpenProcessToken(procHandle, windows.TOKEN_QUERY, &token)
+	err := windows.OpenThreadToken(windows.CurrentThread(), windows.TOKEN_QUERY, true, &token)
 	if err != nil {
-		return false
+		fmt.Printf("OpenThreadToken failed: %v, falling back to process token\n", err)
+		// Fall back to process token
+		procHandle := windows.CurrentProcess()
+		err = windows.OpenProcessToken(procHandle, windows.TOKEN_QUERY, &token)
+		if err != nil {
+			fmt.Printf("OpenProcessToken failed: %v\n", err)
+			return false
+		}
 	}
 	defer token.Close()
 
 	user, err := token.GetTokenUser()
 	if err != nil {
+		fmt.Printf("GetTokenUser failed: %v\n", err)
 		return false
 	}
 
 	systemSid, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
 	if err != nil {
+		fmt.Printf("CreateWellKnownSid failed: %v\n", err)
 		return false
 	}
 
-	fmt.Printf("systemSid: %v\n", systemSid)
-	fmt.Printf("user sid: %v\n", user.User.Sid)
-	fmt.Printf("equal?: %v\n", windows.EqualSid(user.User.Sid, systemSid))
+	userSidStr := user.User.Sid.String()
+	systemSidStr := systemSid.String()
+	fmt.Printf("Comparing current token SID: %s with SYSTEM SID: %s\n", userSidStr, systemSidStr)
 
 	return windows.EqualSid(user.User.Sid, systemSid)
 }
