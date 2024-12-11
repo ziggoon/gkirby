@@ -57,76 +57,76 @@ func GetSystem() bool {
 		return false
 	}
 
-	if isHighIntegrity {
-		snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
-		if err != nil {
-			return false
-		}
-		defer windows.CloseHandle(snapshot)
+	if !isHighIntegrity {
+		return false
+	}
 
-		var procEntry windows.ProcessEntry32
-		procEntry.Size = uint32(unsafe.Sizeof(procEntry))
-		if err := windows.Process32First(snapshot, &procEntry); err != nil {
-			return false
-		}
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(snapshot)
 
-		for {
-			processName := windows.UTF16ToString(procEntry.ExeFile[:])
-			if processName == "winlogon.exe" {
-				handle, err := windows.OpenProcess(
-					ProcessQueryInformation|ProcessVmRead,
-					false,
-					procEntry.ProcessID,
-				)
-				defer windows.CloseHandle(handle)
+	var procEntry windows.ProcessEntry32
+	procEntry.Size = uint32(unsafe.Sizeof(procEntry))
+	if err := windows.Process32First(snapshot, &procEntry); err != nil {
+		return false
+	}
 
-				fmt.Printf("winlogon handle obtained\n")
-
-				if err != nil {
-					return false
-				}
-
-				var token windows.Token
-				err = windows.OpenProcessToken(handle, windows.TOKEN_DUPLICATE, &token)
-				if err != nil {
-					return false
-				}
-
-				fmt.Printf("token obtained: %v\n", token)
-
-				var duplicateToken windows.Token
-				err = windows.DuplicateTokenEx(token, windows.TOKEN_ALL_ACCESS, nil, windows.SecurityImpersonation, windows.TokenPrimary, &duplicateToken)
-				if err != nil {
-					fmt.Printf("DuplicateTokenEx failed: %v", err)
-					return false
-				}
-
-				fmt.Printf("duplicateToken: %v\n", duplicateToken)
-
-				ret, _, err := dll.ImpersonateLoggedOnUser.Call(uintptr(duplicateToken))
-				if ret == 0 {
-					return false
-				}
-				defer token.Close()
-				defer duplicateToken.Close()
-
-				isSystem, _ := IsSystem()
-				if !isSystem {
-					return false
-				} else {
-					return true
-				}
-			}
-
-			err = windows.Process32Next(snapshot, &procEntry)
+	for {
+		processName := windows.UTF16ToString(procEntry.ExeFile[:])
+		if processName == "winlogon.exe" {
+			handle, err := windows.OpenProcess(
+				ProcessQueryInformation|ProcessVmRead,
+				false,
+				procEntry.ProcessID,
+			)
 			if err != nil {
-				if err == windows.ERROR_NO_MORE_FILES {
-					break
-				}
 				return false
 			}
+			defer windows.CloseHandle(handle)
+
+			fmt.Printf("winlogon handle obtained\n")
+
+			var token windows.Token
+			err = windows.OpenProcessToken(handle, windows.TOKEN_DUPLICATE, &token)
+			if err != nil {
+				return false
+			}
+			defer token.Close()
+
+			fmt.Printf("token obtained: %v\n", token)
+
+			var duplicateToken windows.Token
+			err = windows.DuplicateTokenEx(token, windows.TOKEN_ALL_ACCESS, nil, windows.SecurityImpersonation, windows.TokenImpersonation, &duplicateToken)
+			if err != nil {
+				fmt.Printf("DuplicateTokenEx failed: %v", err)
+				return false
+			}
+			defer duplicateToken.Close()
+
+			fmt.Printf("duplicateToken: %v\n", duplicateToken)
+
+			ret, _, err := dll.ImpersonateLoggedOnUser.Call(uintptr(duplicateToken))
+			if ret == 0 {
+				return false
+			}
+
+			isSystem, err := IsSystem()
+			if err != nil || !isSystem {
+				return false
+			} else {
+				return true
+			}
 		}
-		return false
+
+		err = windows.Process32Next(snapshot, &procEntry)
+		if err != nil {
+			if err == windows.ERROR_NO_MORE_FILES {
+				break
+			}
+			return false
+		}
 	}
 	return false
 }
