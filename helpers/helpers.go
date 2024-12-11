@@ -89,7 +89,7 @@ func GetSystem() bool {
 			fmt.Printf("winlogon handle obtained\n")
 
 			var token windows.Token
-			err = windows.OpenProcessToken(handle, windows.TOKEN_DUPLICATE|windows.TOKEN_QUERY|windows.TOKEN_QUERY_SOURCE, &token)
+			err = windows.OpenProcessToken(handle, windows.TOKEN_DUPLICATE, &token)
 			if err != nil {
 				fmt.Printf("OpenProcessToken failed: %v\n", err)
 				return false
@@ -109,7 +109,7 @@ func GetSystem() bool {
 			var duplicateToken windows.Token
 			err = windows.DuplicateTokenEx(
 				token,
-				windows.TOKEN_ALL_ACCESS,
+				windows.MAXIMUM_ALLOWED,
 				nil,
 				windows.SecurityImpersonation,
 				windows.TokenImpersonation,
