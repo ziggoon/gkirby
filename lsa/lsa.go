@@ -148,6 +148,8 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 					sessionCred.Tickets = append(sessionCred.Tickets, *ticket)
 				}
 			}
+		} else {
+			fmt.Printf("response ptr is not 0: %v\n", responsePtr)
 		}
 		sessionCreds = append(sessionCreds, sessionCred)
 	}
