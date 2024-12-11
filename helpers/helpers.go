@@ -103,6 +103,16 @@ func GetSystem() {
 
 			fmt.Printf("duplicateToken: %v\n", duplicateToken)
 
+			orig_user, err := token.GetTokenUser()
+			orig_group, err := token.GetTokenPrimaryGroup()
+			dupe_user, err := duplicateToken.GetTokenUser()
+			dupe_group, err := duplicateToken.GetTokenPrimaryGroup()
+
+			fmt.Printf("orig_user: %v\n", orig_user)
+			fmt.Printf("dupe_user: %v\n", dupe_user)
+			fmt.Printf("orig_group: %v\n", orig_group)
+			fmt.Printf("dupe_group: %v\n", dupe_group)
+
 			ret, _, err := dll.ImpersonateLoggedOnUser.Call(uintptr(duplicateToken))
 			if ret == 0 {
 				return
