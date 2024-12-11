@@ -99,7 +99,7 @@ func GetSystem() bool {
 				}
 				defer duplicateToken.Close()
 
-				ret, _, err = dll.ImpersonateLoggedOnUser.Call(uintptr(token))
+				ret, _, err = dll.ImpersonateLoggedOnUser.Call(uintptr(duplicateToken))
 				if ret == 0 {
 					return false
 				}
