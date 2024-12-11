@@ -46,6 +46,7 @@ func GetKerberosTickets() []map[string]interface{} {
 	for _, cred := range sessionCreds {
 		fmt.Printf("sessionCred: \n%+v\n", cred)
 		for _, ticket := range cred.Tickets {
+			fmt.Printf("ticket: %+v\n", ticket)
 
 			// obtain raw ticket material
 			extractedTicket, err := lsa.ExtractTicket(lsaHandle, authPackage, cred.LogonSession.LogonID, ticket.ServerName)
