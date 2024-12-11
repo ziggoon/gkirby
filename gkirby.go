@@ -5,6 +5,7 @@ package gkirby
 
 import (
 	"encoding/base64"
+	"fmt"
 	"time"
 
 	"github.com/ziggoon/gkirby/lsa"
@@ -41,10 +42,12 @@ func GetKerberosTickets() []map[string]interface{} {
 
 	ticketCache = make([]map[string]interface{}, 0)
 	for _, cred := range sessionCreds {
+		fmt.Printf("sessionCred: \n%+v\n", cred)
 		for _, ticket := range cred.Tickets {
 
 			// obtain raw ticket material
 			extractedTicket, err := lsa.ExtractTicket(lsaHandle, authPackage, cred.LogonSession.LogonID, ticket.ServerName)
+			fmt.Printf("extractedTicket: %+v\n", extractedTicket)
 			if err != nil {
 				continue
 			}

