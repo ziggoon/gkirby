@@ -106,6 +106,14 @@ func GetSystem() {
 			}
 			defer duplicateToken.Close()
 
+			dupeUser, err := duplicateToken.GetTokenUser()
+			if err != nil {
+				fmt.Printf("Failed to get duplicate token user: %v\n", err)
+			} else {
+				sidStr := dupeUser.User.Sid.String()
+				fmt.Printf("Duplicate token user SID before impersonation: %s\n", sidStr)
+			}
+
 			fmt.Printf("duplicateToken: %v\n", duplicateToken)
 
 			dupe_user, err := duplicateToken.GetTokenUser()
