@@ -17,20 +17,19 @@ func GetLsaHandle() (windows.Handle, error) {
 		return 0, err
 	}
 
+	fmt.Printf("isHighIntegrity: %t\n", isHighIntegrity)
+
 	isSystem, err := helpers.IsSystem()
 	if err != nil {
 		return 0, err
 	}
 
+	fmt.Printf("isSystem: %t\n", isSystem)
+
 	var lsaHandle windows.Handle
 	if isHighIntegrity && !isSystem {
 		fmt.Printf("process is high integrity, but not system\n")
-		gotSystem := helpers.GetSystem()
-		// might not want to just return a bad handle, instead just run as the current user?
-		if !gotSystem {
-			fmt.Printf("failed to get SYSTEM\n")
-			return 0, fmt.Errorf("failed to get SYSTEM privileges")
-		}
+		helpers.GetSystem()
 	}
 
 	ret, _, err := dll.LsaConnectUntrusted.Call(

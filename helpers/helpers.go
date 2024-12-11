@@ -51,26 +51,26 @@ func DefaultDisplayOptions() *DisplayOptions {
 	}
 }
 
-func GetSystem() bool {
+func GetSystem() {
 	isHighIntegrity, err := IsHighIntegrity()
 	if err != nil {
-		return false
+		return
 	}
 
 	if !isHighIntegrity {
-		return false
+		return
 	}
 
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
-		return false
+		return
 	}
 	defer windows.CloseHandle(snapshot)
 
 	var procEntry windows.ProcessEntry32
 	procEntry.Size = uint32(unsafe.Sizeof(procEntry))
 	if err := windows.Process32First(snapshot, &procEntry); err != nil {
-		return false
+		return
 	}
 
 	for {
@@ -82,7 +82,7 @@ func GetSystem() bool {
 				procEntry.ProcessID,
 			)
 			if err != nil {
-				return false
+				return
 			}
 			defer windows.CloseHandle(handle)
 
@@ -91,7 +91,7 @@ func GetSystem() bool {
 			var token windows.Token
 			err = windows.OpenProcessToken(handle, windows.TOKEN_DUPLICATE, &token)
 			if err != nil {
-				return false
+				return
 			}
 			defer token.Close()
 
@@ -101,7 +101,7 @@ func GetSystem() bool {
 			err = windows.DuplicateTokenEx(token, windows.TOKEN_ALL_ACCESS, nil, windows.SecurityImpersonation, windows.TokenImpersonation, &duplicateToken)
 			if err != nil {
 				fmt.Printf("DuplicateTokenEx failed: %v", err)
-				return false
+				return
 			}
 			defer duplicateToken.Close()
 
@@ -109,14 +109,14 @@ func GetSystem() bool {
 
 			ret, _, err := dll.ImpersonateLoggedOnUser.Call(uintptr(duplicateToken))
 			if ret == 0 {
-				return false
+				return
 			}
 
 			isSystem, err := IsSystem()
 			if err != nil || !isSystem {
-				return false
+				return
 			} else {
-				return true
+				return
 			}
 		}
 
@@ -125,10 +125,10 @@ func GetSystem() bool {
 			if err == windows.ERROR_NO_MORE_FILES {
 				break
 			}
-			return false
+			return
 		}
 	}
-	return false
+	return
 }
 
 func IsAdmin() (bool, error) {
@@ -174,6 +174,7 @@ func IsSystem() (bool, error) {
 
 	fmt.Printf("systemSid: %v\n", systemSid)
 	fmt.Printf("user sid: %v\n", user.User.Sid)
+	fmt.Printf("equal?: %v\n", windows.EqualSid(user.User.Sid, systemSid))
 
 	return windows.EqualSid(user.User.Sid, systemSid), nil
 }
