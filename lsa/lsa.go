@@ -124,6 +124,8 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 
 			response := (*types.KerbQueryTktCacheResponse)(unsafe.Pointer(responsePtr))
 
+			fmt.Printf("tickets received: %v\n", response.CountOfTickets)
+
 			if response.CountOfTickets > 0 {
 				ticketSize := unsafe.Sizeof(types.KerbTicketCacheInfoEx{})
 
