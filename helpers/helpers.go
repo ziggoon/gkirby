@@ -98,14 +98,6 @@ func GetSystem() bool {
 
 			fmt.Printf("token obtained: %v\n", token)
 
-			// Get original token info for debugging
-			orig_user, err := token.GetTokenUser()
-			if err != nil {
-				fmt.Printf("Failed to get original token user: %v\n", err)
-			}
-			orig_sid := orig_user.User.Sid.String()
-			fmt.Printf("Original token SID: %s\n", orig_sid)
-
 			var duplicateToken windows.Token
 			err = windows.DuplicateTokenEx(
 				token,
@@ -120,15 +112,6 @@ func GetSystem() bool {
 				return false
 			}
 			defer duplicateToken.Close()
-
-			// Get duplicate token info for debugging
-			dupeUser, err := duplicateToken.GetTokenUser()
-			if err != nil {
-				fmt.Printf("Failed to get duplicate token user: %v\n", err)
-			} else {
-				sidStr := dupeUser.User.Sid.String()
-				fmt.Printf("Duplicate token SID before impersonation: %s\n", sidStr)
-			}
 
 			ret, _, errNo := dll.ImpersonateLoggedOnUser.Call(uintptr(duplicateToken))
 			if ret == 0 {
