@@ -110,7 +110,7 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 			uintptr(lsaHandle),
 			uintptr(authPackage),
 			uintptr(unsafe.Pointer(&ticketCacheRequest)),
-			uintptr(unsafe.Sizeof(ticketCacheRequest)),
+			unsafe.Sizeof(ticketCacheRequest),
 			uintptr(pResponsePtr),
 			uintptr(unsafe.Pointer(&returnLength)),
 			uintptr(unsafe.Pointer(&protocolStatus)),
@@ -118,6 +118,8 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 		if ret != 0 {
 			return sessionCreds, fmt.Errorf("[-] LsaCallAuthenticationPackage failed, err: %v\n", err)
 		}
+
+		fmt.Printf("responsePtr: %v\n", responsePtr)
 
 		if responsePtr != 0 {
 			defer dll.LsaFreeReturnBuffer.Call(responsePtr)
