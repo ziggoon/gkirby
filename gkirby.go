@@ -34,11 +34,15 @@ func GetKerberosTickets() []map[string]interface{} {
 		return nil
 	}
 
+	fmt.Printf("kerberos authPackage received: %v\n", authPackage)
+
 	// list cached kerberos tickets in LSA
 	sessionCreds, err := lsa.EnumerateTickets(lsaHandle, authPackage)
 	if err != nil {
 		return nil
 	}
+
+	fmt.Printf("sessionCreds received: %v\n", sessionCreds)
 
 	ticketCache = make([]map[string]interface{}, 0)
 	for _, cred := range sessionCreds {

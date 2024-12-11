@@ -21,6 +21,7 @@ func GetLsaHandle() (windows.Handle, error) {
 
 	isSystem, err := helpers.IsSystem()
 	if err != nil {
+		fmt.Printf("failed to check IsSystem????????????\n")
 		return 0, err
 	}
 
