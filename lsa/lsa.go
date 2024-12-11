@@ -93,6 +93,7 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 
 		if isHighIntegrity {
 			ticketCacheRequest.LogonId = sessionData.LogonID
+			fmt.Printf("Requesting tickets for LUID: %v\n", sessionData.LogonID)
 		} else {
 			// https://github.com/GhostPack/Rubeus/blob/master/Rubeus/lib/LSA.cs#L303
 			ticketCacheRequest.LogonId = windows.LUID{LowPart: 0, HighPart: 0}
