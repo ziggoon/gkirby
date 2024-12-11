@@ -131,27 +131,6 @@ func GetSystem() {
 	return
 }
 
-func IsAdmin() (bool, error) {
-	var token windows.Token
-	procHandle := windows.CurrentProcess()
-
-	err := windows.OpenProcessToken(procHandle, windows.TOKEN_QUERY, &token)
-	if err != nil {
-		return false, fmt.Errorf("OpenProcessToken failed: %v", err)
-	}
-	defer token.Close()
-
-	var elevated uint32
-	var size uint32
-	err = windows.GetTokenInformation(token, windows.TokenElevation, (*byte)(unsafe.Pointer(&elevated)), uint32(unsafe.Sizeof(elevated)), &size)
-	if err != nil {
-		return false, fmt.Errorf("GetTokenInformation failed: %v", err)
-	}
-
-	isElevated := elevated != 0
-	return isElevated, nil
-}
-
 func IsSystem() (bool, error) {
 	var token windows.Token
 	procHandle := windows.CurrentProcess()
@@ -179,7 +158,6 @@ func IsSystem() (bool, error) {
 }
 
 func IsHighIntegrity() (bool, error) {
-	fmt.Printf("in IsHighIntegrity\n")
 	var token windows.Token
 	h := windows.CurrentProcess()
 	err := windows.OpenProcessToken(h, windows.TOKEN_QUERY, &token)

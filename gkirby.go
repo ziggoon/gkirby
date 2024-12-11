@@ -22,12 +22,10 @@ func GetKerberosTickets() []map[string]interface{} {
 
 	// retrieve LSA handle
 	// if process is high integrity, process token will be elevated to SYSTEM
-	fmt.Printf("obtaining lsa handle\n")
 	lsaHandle, err := lsa.GetLsaHandle()
 	if err != nil {
 		return nil
 	}
-	fmt.Printf("obtained lsa handle\n")
 
 	// get kerberos auth package
 	kerberosString := types.NewLSAString("kerberos")
@@ -35,7 +33,6 @@ func GetKerberosTickets() []map[string]interface{} {
 	if err != nil {
 		return nil
 	}
-	fmt.Printf("kerberos authPackage received: %v\n", authPackage)
 
 	// list cached kerberos tickets in LSA
 	sessionCreds, err := lsa.EnumerateTickets(lsaHandle, authPackage)
