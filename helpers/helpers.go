@@ -52,11 +52,7 @@ func DefaultDisplayOptions() *DisplayOptions {
 }
 
 func GetSystem() {
-	isHighIntegrity, err := IsHighIntegrity()
-	if err != nil {
-		return
-	}
-
+	isHighIntegrity := IsHighIntegrity()
 	if !isHighIntegrity {
 		return
 	}
@@ -112,15 +108,15 @@ func GetSystem() {
 				return
 			}
 
-			isSystem, err := IsSystem()
-			if err != nil || !isSystem {
+			isSystem := IsSystem()
+			if !isSystem {
 				return
 			} else {
 				return
 			}
 		}
 
-		err = windows.Process32Next(snapshot, &procEntry)
+		err := windows.Process32Next(snapshot, &procEntry)
 		if err != nil {
 			if err == windows.ERROR_NO_MORE_FILES {
 				break
@@ -131,38 +127,38 @@ func GetSystem() {
 	return
 }
 
-func IsSystem() (bool, error) {
+func IsSystem() bool {
 	var token windows.Token
 	procHandle := windows.CurrentProcess()
 	err := windows.OpenProcessToken(procHandle, windows.TOKEN_QUERY, &token)
 	if err != nil {
-		return false, fmt.Errorf("OpenProcessToken failed: %v", err)
+		return false
 	}
 	defer token.Close()
 
 	user, err := token.GetTokenUser()
 	if err != nil {
-		return false, fmt.Errorf("GetTokenUser failed: %v", err)
+		return false
 	}
 
 	systemSid, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
 	if err != nil {
-		return false, fmt.Errorf("CreateWellKnownSid failed: %v", err)
+		return false
 	}
 
 	fmt.Printf("systemSid: %v\n", systemSid)
 	fmt.Printf("user sid: %v\n", user.User.Sid)
 	fmt.Printf("equal?: %v\n", windows.EqualSid(user.User.Sid, systemSid))
 
-	return windows.EqualSid(user.User.Sid, systemSid), nil
+	return windows.EqualSid(user.User.Sid, systemSid)
 }
 
-func IsHighIntegrity() (bool, error) {
+func IsHighIntegrity() bool {
 	var token windows.Token
 	h := windows.CurrentProcess()
 	err := windows.OpenProcessToken(h, windows.TOKEN_QUERY, &token)
 	if err != nil {
-		return false, err
+		return false
 	}
 	defer token.Close()
 
@@ -170,10 +166,10 @@ func IsHighIntegrity() (bool, error) {
 	var returnedLen uint32
 	err = windows.GetTokenInformation(token, windows.TokenElevation, (*byte)(unsafe.Pointer(&isElevated)), uint32(unsafe.Sizeof(isElevated)), &returnedLen)
 	if err != nil {
-		return false, err
+		return false
 	}
 
-	return isElevated != 0, nil
+	return isElevated != 0
 }
 
 func FileTimeToTime(fileTime int64) time.Time {

@@ -12,21 +12,10 @@ import (
 )
 
 func GetLsaHandle() (windows.Handle, error) {
-	fmt.Printf("in getlsahandle\n")
-	isHighIntegrity, err := helpers.IsHighIntegrity()
-	if err != nil {
-		return 0, err
-	}
+	isHighIntegrity := helpers.IsHighIntegrity()
+	isSystem := helpers.IsSystem()
 
-	fmt.Printf("isHighIntegrity: %t\n", isHighIntegrity)
-
-	isSystem, err := helpers.IsSystem()
-	if err != nil {
-		fmt.Printf("failed to check IsSystem????????????\n")
-		return 0, err
-	}
-
-	fmt.Printf("isSystem: %t\n", isSystem)
+	fmt.Printf("obtaining LSA handle\n high integrity: %t\n is system: %t\n", isHighIntegrity, isSystem)
 
 	var lsaHandle windows.Handle
 	if isHighIntegrity && !isSystem {
@@ -41,8 +30,8 @@ func GetLsaHandle() (windows.Handle, error) {
 		return lsaHandle, fmt.Errorf("LsaConnectUntrusted failed: %v", err)
 	}
 
-	isSystem, _ = helpers.IsSystem()
-	if isHighIntegrity && !isSystem {
+	isSystem = helpers.IsSystem()
+	if !isSystem {
 		fmt.Printf("not system for some reason\n")
 	} else {
 		fmt.Printf("should be system\n")
@@ -70,16 +59,10 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 	var luids []windows.LUID
 	var sessionCreds []types.SessionCred
 
-	isHighIntegrity, err := helpers.IsHighIntegrity()
-	if err != nil {
-		return sessionCreds, fmt.Errorf("failed to check if admin is enabled: %v", err)
-	}
+	isHighIntegrity := helpers.IsHighIntegrity()
 
 	if isHighIntegrity {
-		luids, err = enumerateLogonSessions()
-		if err != nil {
-			return sessionCreds, fmt.Errorf("failed to enumerate logon ids: %v", err)
-		}
+		luids, _ = enumerateLogonSessions()
 	} else {
 		luid, err := getCurrentLUID()
 		if err != nil {
