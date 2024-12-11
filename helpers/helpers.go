@@ -170,6 +170,10 @@ func IsSystem() (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("CreateWellKnownSid failed: %v", err)
 	}
+	defer windows.FreeSid(systemSid)
+
+	fmt.Printf("systemSid: %v\n", systemSid)
+	fmt.Printf("user sid: %v\n", user.User.Sid)
 
 	return windows.EqualSid(user.User.Sid, systemSid), nil
 }
