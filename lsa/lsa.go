@@ -101,6 +101,12 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 		ticketCacheRequest.MessageType = types.KerbQueryTicketCacheExMessage
 
 		if isHighIntegrity {
+			value := uint64(luid.HighPart)<<32 | uint64(luid.LowPart)
+			value2 := uint64(sessionData.LogonID.HighPart)<<32 | uint64(sessionData.LogonID.LowPart)
+
+			fmt.Printf("luid from enumerateLogonSessions: 0x%x\n", value)
+			fmt.Printf("luid from getLogonSessionData: 0x%x\n", value2)
+
 			ticketCacheRequest.LogonId = sessionData.LogonID
 		} else {
 			// https://github.com/GhostPack/Rubeus/blob/master/Rubeus/lib/LSA.cs#L303
