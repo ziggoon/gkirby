@@ -116,7 +116,6 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 		}
 
 		var padding uint32 = 0
-
 		requestSize := unsafe.Sizeof(ticketCacheRequest) + unsafe.Sizeof(padding)
 		buffer := make([]byte, requestSize)
 
@@ -192,13 +191,17 @@ func ExtractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 	request := (*types.KerbRetrieveTktRequest)(bufferPtr)
 	request.MessageType = types.KerbRetrieveEncodedTicketMessage
 
-	if helpers.IsSystem() {
-		value := uint64(luid.HighPart)<<32 | uint64(luid.LowPart)
-		fmt.Printf("setting luid: 0x%x\n", value)
-		request.LogonId = luid
-	} else {
-		request.LogonId = windows.LUID{LowPart: 0, HighPart: 0}
-	}
+	/*
+		if helpers.IsSystem() {
+			value := uint64(luid.HighPart)<<32 | uint64(luid.LowPart)
+			fmt.Printf("setting luid: 0x%x\n", value)
+			request.LogonId = luid
+		} else {
+			request.LogonId = windows.LUID{LowPart: 0, HighPart: 0}
+		}*/
+
+	// rubeus uses explicit luids when elevated which makes sense. idk why my implementation isnt working but fuck it we ball
+	request.LogonId = luid
 	request.TicketFlags = 0
 	request.CacheOptions = 8
 	request.EncryptionType = 0
