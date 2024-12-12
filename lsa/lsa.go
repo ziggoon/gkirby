@@ -82,6 +82,8 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 		luids = append(luids, luid)
 	}
 
+	fmt.Printf("luids: %+v\n", luids)
+
 	for _, luid := range luids {
 		sessionData, err := getLogonSessionData(luid)
 		if err != nil {
