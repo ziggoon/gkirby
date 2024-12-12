@@ -134,6 +134,12 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 			return sessionCreds, fmt.Errorf("[-] LsaCallAuthenticationPackage failed, err: %v\n", err)
 		}
 
+		fmt.Printf("\nLsaCallAuthenticationPackage results:\n")
+		fmt.Printf("  Return code: 0x%x\n", ret)
+		fmt.Printf("  Protocol status: 0x%x\n", protocolStatus)
+		fmt.Printf("  Return length: %d\n", returnLength)
+		fmt.Printf("  Response pointer: %v\n", responsePtr)
+
 		fmt.Printf("responsePtr: %v\n", responsePtr)
 
 		if responsePtr != 0 {
@@ -165,8 +171,6 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 					sessionCred.Tickets = append(sessionCred.Tickets, *ticket)
 				}
 			}
-		} else {
-			fmt.Printf("response ptr is not 0: %v\n", responsePtr)
 		}
 		sessionCreds = append(sessionCreds, sessionCred)
 	}
