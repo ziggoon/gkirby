@@ -233,6 +233,12 @@ func ExtractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 		uintptr(unsafe.Pointer(&protocolStatus)),
 	)
 
+	fmt.Printf("\nLsaCallAuthenticationPackage results:\n")
+	fmt.Printf("  Return code: 0x%x\n", ret)
+	fmt.Printf("  Protocol status: 0x%x\n", protocolStatus)
+	fmt.Printf("  Return length: %d\n", returnLength)
+	fmt.Printf("  Response pointer: %v\n", responsePtr)
+
 	if ret != 0 {
 		return nil, fmt.Errorf("LsaCallAuthenticationPackage failed: 0x%x", ret)
 	}
