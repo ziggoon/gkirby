@@ -41,11 +41,11 @@ func GetKerberosTickets() []map[string]interface{} {
 		return nil
 	}
 
-	fmt.Printf("sessionCreds received: %v\n", sessionCreds)
+	//fmt.Printf("sessionCreds received: %v\n", sessionCreds)
 
 	ticketCache = make([]map[string]interface{}, 0)
 	for _, cred := range sessionCreds {
-		fmt.Printf("sessionCred: \n%+v\n", cred)
+		//fmt.Printf("sessionCred: \n%+v\n", cred)
 		for _, ticket := range cred.Tickets {
 
 			fmt.Printf("current process is SYSTEM: %t\n", helpers.IsSystem())

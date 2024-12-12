@@ -27,6 +27,18 @@ func GetLsaHandle() (windows.Handle, error) {
 		if !helpers.IsSystem() {
 			return 0, fmt.Errorf("failed to maintain SYSTEM privileges")
 		}
+
+		ret, _, err := dll.LsaConnectUntrusted.Call(
+			uintptr(unsafe.Pointer(&lsaHandle)),
+		)
+		if ret != 0 {
+			return lsaHandle, fmt.Errorf("LsaConnectUntrusted failed: %v", err)
+		}
+
+		// revert to original security context after obtain LSA handle as SYSTEM
+		_ = windows.RevertToSelf()
+
+		return lsaHandle, nil
 	}
 
 	ret, _, err := dll.LsaConnectUntrusted.Call(
@@ -71,9 +83,6 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 	}
 
 	for _, luid := range luids {
-		//value := uint64(luid.HighPart)<<32 | uint64(luid.LowPart)
-		//fmt.Printf("[+] current luid: 0x%x\n", value)
-
 		sessionData, err := getLogonSessionData(luid)
 		if err != nil {
 			return sessionCreds, fmt.Errorf("[-] failed to get logon session data, err: %v\n", err)
@@ -93,7 +102,6 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 
 		if isHighIntegrity {
 			ticketCacheRequest.LogonId = sessionData.LogonID
-			fmt.Printf("Requesting tickets for LUID: %v\n", sessionData.LogonID)
 		} else {
 			// https://github.com/GhostPack/Rubeus/blob/master/Rubeus/lib/LSA.cs#L303
 			ticketCacheRequest.LogonId = windows.LUID{LowPart: 0, HighPart: 0}
@@ -177,6 +185,8 @@ func ExtractTicket(lsaHandle windows.Handle, authPackage uint32, luid windows.LU
 	request.MessageType = types.KerbRetrieveEncodedTicketMessage
 
 	if helpers.IsSystem() {
+		value := uint64(luid.HighPart)<<32 | uint64(luid.LowPart)
+		fmt.Printf("setting luid: 0x%x\n", value)
 		request.LogonId = luid
 	} else {
 		request.LogonId = windows.LUID{LowPart: 0, HighPart: 0}
