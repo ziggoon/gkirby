@@ -84,7 +84,7 @@ func GetSystem() bool {
 				fmt.Printf("OpenProcess failed: %v\n", err)
 				return false
 			}
-			//defer windows.CloseHandle(handle)
+			defer windows.CloseHandle(handle)
 
 			fmt.Printf("winlogon handle obtained\n")
 
@@ -94,7 +94,7 @@ func GetSystem() bool {
 				fmt.Printf("OpenProcessToken failed: %v\n", err)
 				return false
 			}
-			//defer token.Close()
+			defer token.Close()
 
 			fmt.Printf("token obtained: %v\n", token)
 
@@ -111,7 +111,7 @@ func GetSystem() bool {
 				fmt.Printf("DuplicateTokenEx failed: %v\n", err)
 				return false
 			}
-			//defer duplicateToken.Close()
+			defer duplicateToken.Close()
 
 			fmt.Printf("duplicate token obtained: %v\n", duplicateToken)
 

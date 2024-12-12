@@ -102,6 +102,7 @@ func EnumerateTickets(lsaHandle windows.Handle, authPackage uint32) ([]types.Ses
 		var ticketCacheRequest types.KerbQueryTktCacheRequest
 		ticketCacheRequest.MessageType = types.KerbQueryTicketCacheExMessage
 
+		// for some reason we are getting 0xc000005f error from LsaCallAuthenticationPackage when elevated
 		if isHighIntegrity {
 			value := uint64(luid.HighPart)<<32 | uint64(luid.LowPart)
 			value2 := uint64(sessionData.LogonID.HighPart)<<32 | uint64(sessionData.LogonID.LowPart)
